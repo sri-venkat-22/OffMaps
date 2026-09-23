@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.offmaps'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.offmaps'
+        minSdk 26                 // GnssStatus.Callback + CONSTELLATION_IRNSS (NavIC) floor (see Phase 1)
+        targetSdk 34
+        versionCode 7
+        versionName '6.1-map'
+        // Ship native for real phones (arm) and the x86_64 emulator. onnxruntime-android
+        // publishes all three; the CMake core is plain C++17 so every ABI builds.
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
+    }
+
+    // Compile libidr (core/*.cpp) + the JNI bridge into libidrjni.so via the NDK.
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    // Offline map assets are memory-mapped (roads.bin) / copied by length (tiles.mbtiles),
+    // and mbtiles tiles are already gzipped: store both uncompressed in the APK.
+    androidResources {
+        noCompress 'mbtiles', 'bin'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    // On-device SpeedNet inference (py/model/nn.onnx, opset 17). See SpeedNet.kt.
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'
+    // Offline map view (NavMap.kt): renders the bundled mbtiles; no network, no API key.
+    // 12.3.x is the last OpenGL-default line and its Kotlin 2.0 metadata is readable by
+    // this project's Kotlin 1.9 (13.x ships Kotlin 2.2 metadata).
+    implementation 'org.maplibre.gl:android-sdk:12.3.1'
+}

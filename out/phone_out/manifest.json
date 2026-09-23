@@ -1,0 +1,322 @@
+[
+  {
+    "drive_id": "phone_demo",
+    "i0": 800,
+    "i1": 900,
+    "duration_s": 10.0,
+    "mean_speed": 18.467286128838808,
+    "heading_change_deg": 46.922412696958155
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2750,
+    "i1": 2850,
+    "duration_s": 10.0,
+    "mean_speed": 11.218644330279924,
+    "heading_change_deg": 0.0
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1400,
+    "i1": 1500,
+    "duration_s": 10.0,
+    "mean_speed": 9.373365242453943,
+    "heading_change_deg": 6.6692304611557995
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 400,
+    "i1": 500,
+    "duration_s": 10.0,
+    "mean_speed": 11.407660843433552,
+    "heading_change_deg": 235.35828791373513
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2700,
+    "i1": 2800,
+    "duration_s": 10.0,
+    "mean_speed": 9.206468094047224,
+    "heading_change_deg": 76.22002651491347
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1500,
+    "i1": 1600,
+    "duration_s": 10.0,
+    "mean_speed": 11.38967036248742,
+    "heading_change_deg": 204.16872674426392
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2500,
+    "i1": 2600,
+    "duration_s": 10.0,
+    "mean_speed": 5.550542256384968,
+    "heading_change_deg": 237.2887617918426
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 200,
+    "i1": 300,
+    "duration_s": 10.0,
+    "mean_speed": 18.253518550876553,
+    "heading_change_deg": 0.0
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 650,
+    "i1": 950,
+    "duration_s": 30.0,
+    "mean_speed": 15.38693481030649,
+    "heading_change_deg": 237.7846289533679
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1450,
+    "i1": 1750,
+    "duration_s": 30.0,
+    "mean_speed": 11.389670362487424,
+    "heading_change_deg": 616.6308009751028
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2600,
+    "i1": 2900,
+    "duration_s": 30.0,
+    "mean_speed": 8.658551560237374,
+    "heading_change_deg": 315.90564448638105
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1050,
+    "i1": 1350,
+    "duration_s": 30.0,
+    "mean_speed": 7.1468942800981194,
+    "heading_change_deg": 260.3445333492675
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 0,
+    "i1": 300,
+    "duration_s": 30.0,
+    "mean_speed": 18.253518550876553,
+    "heading_change_deg": 0.0
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1750,
+    "i1": 2050,
+    "duration_s": 30.0,
+    "mean_speed": 6.597044325127919,
+    "heading_change_deg": 792.0459157146788
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1850,
+    "i1": 2150,
+    "duration_s": 30.0,
+    "mean_speed": 4.7234702830973045,
+    "heading_change_deg": 670.449640826838
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2350,
+    "i1": 2650,
+    "duration_s": 30.0,
+    "mean_speed": 5.192037745258987,
+    "heading_change_deg": 208.5060663531709
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1200,
+    "i1": 1800,
+    "duration_s": 60.0,
+    "mean_speed": 9.608056299092953,
+    "heading_change_deg": 437.10616356430273
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1000,
+    "i1": 1600,
+    "duration_s": 60.0,
+    "mean_speed": 8.214574321546449,
+    "heading_change_deg": 436.2442007102919
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1900,
+    "i1": 2500,
+    "duration_s": 60.0,
+    "mean_speed": 5.284409198616881,
+    "heading_change_deg": 522.1185176428843
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 2300,
+    "i1": 2900,
+    "duration_s": 60.0,
+    "mean_speed": 6.948882617947517,
+    "heading_change_deg": 395.7734038936634
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 850,
+    "i1": 1450,
+    "duration_s": 60.0,
+    "mean_speed": 7.803194788329765,
+    "heading_change_deg": 384.5862237339744
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1800,
+    "i1": 2400,
+    "duration_s": 60.0,
+    "mean_speed": 5.713269588329135,
+    "heading_change_deg": 752.3128435866458
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 300,
+    "i1": 900,
+    "duration_s": 60.0,
+    "mean_speed": 14.380409365940634,
+    "heading_change_deg": 828.5972113437869
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 650,
+    "i1": 1250,
+    "duration_s": 60.0,
+    "mean_speed": 11.298079620077202,
+    "heading_change_deg": 855.184796018606
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 50,
+    "i1": 1250,
+    "duration_s": 120.0,
+    "mean_speed": 13.095711506441907,
+    "heading_change_deg": 1548.897406253231
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 350,
+    "i1": 1550,
+    "duration_s": 120.0,
+    "mean_speed": 10.663127674840702,
+    "heading_change_deg": 1369.5839497416662
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1000,
+    "i1": 2200,
+    "duration_s": 120.0,
+    "mean_speed": 7.8998709530023055,
+    "heading_change_deg": 1576.6068363523257
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 950,
+    "i1": 2150,
+    "duration_s": 120.0,
+    "mean_speed": 7.93502177281458,
+    "heading_change_deg": 1734.175876502737
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 550,
+    "i1": 1750,
+    "duration_s": 120.0,
+    "mean_speed": 10.628752413523902,
+    "heading_change_deg": 1326.0690580951841
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 0,
+    "i1": 1200,
+    "duration_s": 120.0,
+    "mean_speed": 13.555890428151434,
+    "heading_change_deg": 1445.9973784090248
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 600,
+    "i1": 1800,
+    "duration_s": 120.0,
+    "mean_speed": 10.628002810151145,
+    "heading_change_deg": 1310.31675447424
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1500,
+    "i1": 2700,
+    "duration_s": 120.0,
+    "mean_speed": 7.044538658912306,
+    "heading_change_deg": 916.9434363287278
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 300,
+    "i1": 2100,
+    "duration_s": 180.0,
+    "mean_speed": 10.106918183731448,
+    "heading_change_deg": 2718.7180229853425
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 0,
+    "i1": 1800,
+    "duration_s": 180.0,
+    "mean_speed": 12.239945718465272,
+    "heading_change_deg": 1885.1615425302116
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 150,
+    "i1": 1950,
+    "duration_s": 180.0,
+    "mean_speed": 11.259784432265716,
+    "heading_change_deg": 2285.2634085319246
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 950,
+    "i1": 2750,
+    "duration_s": 180.0,
+    "mean_speed": 7.201888756531675,
+    "heading_change_deg": 1173.3020554443353
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 450,
+    "i1": 2250,
+    "duration_s": 180.0,
+    "mean_speed": 9.475666230328603,
+    "heading_change_deg": 2340.1517701151924
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 900,
+    "i1": 2700,
+    "duration_s": 180.0,
+    "mean_speed": 7.202303550199269,
+    "heading_change_deg": 1354.8189659831685
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 1050,
+    "i1": 2850,
+    "duration_s": 180.0,
+    "mean_speed": 7.424634306555676,
+    "heading_change_deg": 967.5019997559226
+  },
+  {
+    "drive_id": "phone_demo",
+    "i0": 500,
+    "i1": 2300,
+    "duration_s": 180.0,
+    "mean_speed": 9.335609116743042,
+    "heading_change_deg": 2166.6149356303345
+  }
+]

@@ -1,0 +1,191 @@
+{
+  "data": "~/OffMaps-data/IO-VNBD-sync",
+  "split": {
+    "train": "/S-M$|/S1/|/S2/|/S4/",
+    "val": "/S3b/|/S3c/",
+    "test": "/Y1/|/S3a/"
+  },
+  "init": "synthetic",
+  "epochs": 20,
+  "lr": 0.001,
+  "extra_train": [
+    "\\(Driver E\\)",
+    0.3
+  ],
+  "seed": 0,
+  "best_val_mae": 5.579892576394671,
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 75.60356534585665,
+      "mae": 8.027388197759965,
+      "bias": -7.784063268407252,
+      "z_var": 7.647559341154102,
+      "z_mean": -2.617758206219445,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 1,
+      "loss": 67.11033263670825,
+      "mae": 9.494629262425189,
+      "bias": -9.246985498317233,
+      "z_var": 52.709737559497746,
+      "z_mean": -6.665422811749088,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 2,
+      "loss": 57.576970017977324,
+      "mae": 8.081471610731754,
+      "bias": -7.498375524916363,
+      "z_var": 17.490005515388564,
+      "z_mean": -3.4059260645945337,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 3,
+      "loss": 53.52012571917412,
+      "mae": 5.579892576394671,
+      "bias": -4.372366230168616,
+      "z_var": 3.050322566085903,
+      "z_mean": -1.2645834875019408,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 4,
+      "loss": 50.61464883836396,
+      "mae": 7.9272267805089704,
+      "bias": -7.467157290826426,
+      "z_var": 18.661044318934785,
+      "z_mean": -3.5146181057671426,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 5,
+      "loss": 48.343622791706515,
+      "mae": 7.235245089199434,
+      "bias": -6.6597246477037535,
+      "z_var": 27.28147102251847,
+      "z_mean": -3.629117149241744,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 6,
+      "loss": 47.06976796651101,
+      "mae": 6.694262241482949,
+      "bias": -6.0270864277345675,
+      "z_var": 8.6488635789041,
+      "z_mean": -2.326221789918863,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 7,
+      "loss": 45.04366185378879,
+      "mae": 6.995809676827644,
+      "bias": -6.599673689250996,
+      "z_var": 15.16271983067412,
+      "z_mean": -2.898077155742193,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 8,
+      "loss": 44.248473733209,
+      "mae": 6.4553829204874305,
+      "bias": -5.725782776174462,
+      "z_var": 9.442010007022557,
+      "z_mean": -2.2627308191732527,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 9,
+      "loss": 42.71620007404183,
+      "mae": 6.75110813563511,
+      "bias": -6.189380074142726,
+      "z_var": 7.1156481791095185,
+      "z_mean": -2.2124584643993197,
+      "passed": false,
+      "n": 4189
+    }
+  ],
+  "calibration": {
+    "pick": "variance_only",
+    "raw_val": {
+      "mae": 5.579892576394671,
+      "bias": -4.372366230168616,
+      "z_var": 3.050322566085903,
+      "z_mean": -1.2645834875019408,
+      "passed": false,
+      "n": 4189
+    },
+    "val_affine": {
+      "mae": 8.347299740821757,
+      "bias": -0.9032579877825148,
+      "z_var": 1.0022005957938271,
+      "z_mean": -0.3794671688923164,
+      "passed": false,
+      "n": 4189
+    },
+    "val_variance_only": {
+      "mae": 5.579892576394671,
+      "bias": -4.372366230168616,
+      "z_var": 0.9999999566723029,
+      "z_mean": -0.7240600975214643,
+      "passed": false,
+      "n": 4189
+    }
+  },
+  "synced_segments": {
+    "train": [
+      "M (Driver B)/S-M#0",
+      "M (Driver B)/S-M#1",
+      "M (Driver B)/S-M#2",
+      "S (Driver A)/S1/S-S1#0",
+      "S (Driver A)/S2/S-S2#0",
+      "S (Driver A)/S2/S-S2#1",
+      "S (Driver A)/S4/S-S4#0",
+      "S (Driver A)/S4/S-S4#1",
+      "Vf (Driver E)/V-Vfa01/S-Vfa01#0",
+      "Vf (Driver E)/V-Vfa02/S-Vfa02#0",
+      "Vta (Driver E)/Vta01a/S-Vta1a#0",
+      "Vta (Driver E)/Vta02/S-Vta2#0",
+      "Vta (Driver E)/Vta04/S-Vta4#0",
+      "Vta (Driver E)/Vta08/S-Vta8#0",
+      "Vta (Driver E)/Vta10/S-Vta10#0",
+      "Vta (Driver E)/Vta16/S-Vta16#0",
+      "Vta (Driver E)/Vta17/S-Vta17#1",
+      "Vta (Driver E)/Vta20/S-Vta20#0",
+      "Vta (Driver E)/Vta21/S-Vta21#0",
+      "Vta (Driver E)/Vta22/S-Vta22#0",
+      "Vta (Driver E)/Vta28/S-Vta28#0",
+      "Vta (Driver E)/Vta29/S-Vta29#0",
+      "Vta (Driver E)/Vta29/S-Vta29#4",
+      "Vta (Driver E)/Vta30/S-Vta30#0",
+      "Vtb (Driver E)/Vtb01/S-Vtb1#5457",
+      "Vtb (Driver E)/Vtb02/S-Vtb2#0",
+      "Vtb (Driver E)/Vtb03/S-Vtb3#0",
+      "Vw (Driver E)/Vw02/S-Vw2#0",
+      "Vw (Driver E)/Vw03/S-Vw3#0",
+      "Vw (Driver E)/Vw04/S-Vw4#0",
+      "Vw (Driver E)/Vw06/S-Vw6#0",
+      "Vw (Driver E)/Vw11/S-Vw11#0",
+      "Vw (Driver E)/Vw14c/S-Vw14c#0"
+    ],
+    "val": [
+      "S (Driver A)/S3b/S-S3b#1",
+      "S (Driver A)/S3c/S-S3c#0"
+    ],
+    "test": [
+      "S (Driver A)/S3a/S-S3a#0",
+      "Y (Driver D)/Y1/S-Y1#3"
+    ]
+  }
+}

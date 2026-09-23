@@ -1,0 +1,23 @@
+{
+  "model": "nn_real.onnx",
+  "checkpoint": "nn_real.pt",
+  "onnx_sha256": "30560ee6b041a830917175cac0f81f2df2e51694635c3357f082a674d65577f2",
+  "calib": {
+    "a": 0.0,
+    "b": 1.0,
+    "s": 1.567813050256328
+  },
+  "eskf": {
+    "arw": 0.008726646259971648,
+    "brw": 0.00034906585039886593,
+    "srw": 24.0,
+    "zupt_v": null,
+    "curv": false,
+    "curv_sigma": 2.0,
+    "sig_scale": 0.25,
+    "handover_s": 10.0,
+    "mm_cross_sigma": 5.0,
+    "mm_heading_sigma_deg": 3.0,
+    "mm_keep_speed": true
+  }
+}

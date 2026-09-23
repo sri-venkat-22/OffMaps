@@ -1,0 +1,12 @@
+# np.trapezoid is numpy>=2.0 (np.trapz was REMOVED in 2.0) -- eval/metrics.py,
+# data/io_vnbd.py and model/dataset.py all call it, so 1.24 does not run.
+numpy>=2.0
+matplotlib>=3.6
+pandas>=2.0   # only for real CSVs; the synthetic path needs just numpy+matplotlib
+pytest>=7.0   # tests/ -- the real-data regression suite
+
+# Phase 2 (NN head) is optional: eval/report.py and the tests skip cleanly when
+# these are absent, so the Phase 0/1 baselines run on the four packages above.
+torch>=2.0        # SpeedNet train + inference (model/)
+onnx>=1.14        # torch.onnx.export -> model/nn.onnx, the on-device artifact
+onnxruntime>=1.16 # runs nn.onnx on device; model/export.py parity-checks it vs torch

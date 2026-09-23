@@ -1,0 +1,25 @@
+# OS / editor
+.DS_Store
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Android / Gradle / NDK
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Map source extract (re-downloadable from Geofabrik; see tools/build_map.sh)
+map/hyderabad/area.osm.pbf

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 6: the nav app is the launcher; the Phase-1 logger stays shipped but
+     secondary. `package` is intentionally absent; the app id/namespace is set
+     in app/build.gradle (com.offmaps), the AGP 8 convention. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Android 12+: SENSOR_DELAY_FASTEST (>200 Hz) throws SecurityException without this -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="true" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="true" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+    <uses-feature android:name="android.hardware.sensor.barometer" android:required="false" />
+
+    <application
+        android:label="OffMaps Nav"
+        android:theme="@style/Theme.AppCompat.DayNight">
+
+        <!-- Phase 6: live on-device fusion + position render -->
+        <activity
+            android:name="com.offmaps.nav.NavActivity"
+            android:exported="true"
+            android:keepScreenOn="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Phase 1: raw sensor logger (records CSVs for offline replay) -->
+        <activity
+            android:name="com.offmaps.logger.LoggerActivity"
+            android:exported="true"
+            android:keepScreenOn="true" />
+    </application>
+</manifest>
