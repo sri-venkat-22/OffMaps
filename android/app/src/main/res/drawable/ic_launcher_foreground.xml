@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon: a navigation arrow inside a dashed "orbit" (GNSS) ring, with a
+     solid amber tail for the dead-reckoned stretch. 108dp adaptive canvas,
+     artwork kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- orbit ring -->
+    <path android:strokeColor="#3322D3EE" android:strokeWidth="3"
+        android:pathData="M54,25a29,29 0 1,1 0,58a29,29 0 1,1 0,-58z" />
+    <path android:strokeColor="#22D3EE" android:strokeWidth="3" android:strokeLineCap="round"
+        android:pathData="M54,25a29,29 0 0,1 29,29" />
+    <!-- dead-reckoned tail -->
+    <path android:strokeColor="#F59E0B" android:strokeWidth="4" android:strokeLineCap="round"
+        android:pathData="M40,74 Q46,68 50,64" />
+    <!-- arrow -->
+    <path android:fillColor="#F3F6FB"
+        android:pathData="M54,34 L68,70 L54,62 L40,70 Z" />
+</vector>

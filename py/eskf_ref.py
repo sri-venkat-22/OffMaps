@@ -51,6 +51,9 @@ class EskfRef:
 
     def set_map_keep_speed(self, keep): self.map_keep_v = bool(keep)
 
+    def set_heading_sigma(self, sigma):
+        self.P[PSI, :] = 0.0; self.P[:, PSI] = 0.0; self.P[PSI, PSI] = sigma * sigma
+
     def predict(self, dt, gyro_z):
         x = self.x; psi, v = x[PSI], x[V]
         s, c = np.sin(psi), np.cos(psi)

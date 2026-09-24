@@ -52,6 +52,8 @@ class RoadNetwork private constructor(
     fun size(w: Int) = start[w + 1] - start[w]
     fun lat(w: Int, i: Int) = lat7[start[w] + i] / SCALE
     fun lon(w: Int, i: Int) = lon7[start[w] + i] / SCALE
+    fun lat7(w: Int, i: Int) = lat7[start[w] + i]      // raw 1e-7 deg: exact vertex identity (junctions)
+    fun lon7(w: Int, i: Int) = lon7[start[w] + i]
 
     /** Ids of every way whose grid cells touch the box of +-radiusM around (lat, lon). */
     fun waysNear(lat: Double, lon: Double, radiusM: Double): IntArray {

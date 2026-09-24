@@ -1,7 +1,7 @@
 package com.offmaps.nav
 
 import android.content.Context
-import android.graphics.Color
+import android.view.Gravity
 import android.os.SystemClock
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -9,20 +9,26 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression.color
 import org.maplibre.android.style.expressions.Expression.eq
+import org.maplibre.android.style.expressions.Expression.switchCase
 import org.maplibre.android.style.expressions.Expression.geometryType
 import org.maplibre.android.style.expressions.Expression.get
 import org.maplibre.android.style.expressions.Expression.literal
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.circleBlur
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineBlur
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
@@ -38,11 +44,12 @@ import kotlin.math.sin
  * (assets/map/tiles.mbtiles, from tools/build_map.sh) with assets/map/style.json,
  * and the live tracks are drawn on top -- the same three stories TrackView told on
  * a blank canvas, now on real streets:
- *   grey   = GNSS fixes (keeps logging during a simulated outage),
- *   blue   = fused ESKF estimate,
- *   orange = fused estimate while dead-reckoning (outage),
- * plus a position dot with a heading tick. The camera follows the car until the
- * user pans; [follow] re-arms it.
+ *   light grey = GNSS fixes (keeps logging during a simulated outage),
+ *   blue       = fused ESKF estimate,
+ *   amber      = fused estimate while dead-reckoning (outage),
+ * plus a glowing position puck (cyan, amber while dead-reckoning) with a heading
+ * tick, over a night-style basemap. The camera follows the car until the user
+ * pans; [follow] re-arms it. Colours come from [Ui].
  *
  * Main thread only.
  */
@@ -52,6 +59,9 @@ class NavMap(private val ctx: Context, private val view: MapView) {
     private var following = true
     private var zoomedIn = false
     private var lastTrackPush = 0L
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var dr = false
 
     // tracks in lon/lat. Fused track is a list of runs, each with one outage state.
     private val gnss = ArrayList<Point>()
@@ -66,6 +76,14 @@ class NavMap(private val ctx: Context, private val view: MapView) {
             map = m
             m.cameraPosition = CameraPosition.Builder()
                 .target(HYDERABAD).zoom(11.5).build()
+            m.uiSettings.apply {
+                isCompassEnabled = false                 // the sheet has its own heading dial
+                isLogoEnabled = false
+                isAttributionEnabled = true              // "(c) OpenStreetMap contributors" (ODbL)
+                attributionGravity = Gravity.BOTTOM or Gravity.START
+                setAttributionTintColor(Ui.MUTED)
+            }
+            applyInsets()
             m.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) following = false
             }
@@ -82,7 +100,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         val base = ctx.assets.open(STYLE_ASSET).bufferedReader().use { it.readText() }
         if (tiles != null) return base.replace("{MBTILES}", "mbtiles://" + tiles.absolutePath)
         // no basemap shipped: keep only the background layer so the tracks still draw
-        return """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#F2EFE9"}}]}"""
+        return """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#0E1626"}}]}"""
     }
 
     private fun addOverlays(s: Style) {
@@ -90,26 +108,47 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         s.addSource(GeoJsonSource(SRC_FUSED))
         s.addSource(GeoJsonSource(SRC_POS))
         s.addSource(GeoJsonSource(SRC_SHOCK))
-        s.addLayer(CircleLayer("shock-dot", SRC_SHOCK).withProperties(      // potholes / bumps (Phase 7c)
-            circleRadius(5f), circleColor(Color.parseColor("#E65100")),
-            circleStrokeColor(Color.WHITE), circleStrokeWidth(1.5f)))
+        val round = arrayOf(lineJoin(Property.LINE_JOIN_ROUND), lineCap(Property.LINE_CAP_ROUND))
+        val isDr = eq(get("dr"), literal(true))
+        val modeColor = switchCase(isDr, color(Ui.DR), color(Ui.ACCENT))
         s.addLayer(LineLayer("gnss-line", SRC_GNSS).withProperties(
-            lineColor(Color.parseColor("#8A8A8A")), lineWidth(3f),
-            lineJoin(Property.LINE_JOIN_ROUND), lineCap(Property.LINE_CAP_ROUND)))
+            lineColor(Ui.GNSS), lineWidth(3f), lineOpacity(0.75f), *round))
+        // fused track: a soft glow under a crisp line, blue on GNSS, amber while dead-reckoning
+        s.addLayer(LineLayer("fused-glow", SRC_FUSED).withProperties(
+            lineColor(switchCase(isDr, color(Ui.DR), color(Ui.FUSED))),
+            lineWidth(14f), lineOpacity(0.28f), lineBlur(6f), *round))
         s.addLayer(LineLayer("fused-line", SRC_FUSED).withProperties(
-            lineColor(Color.parseColor("#1E88E5")), lineWidth(5f),
-            lineJoin(Property.LINE_JOIN_ROUND), lineCap(Property.LINE_CAP_ROUND))
+            lineColor(Ui.FUSED), lineWidth(5f), *round)
             .withFilter(eq(get("dr"), literal(false))))
         s.addLayer(LineLayer("dr-line", SRC_FUSED).withProperties(
-            lineColor(Color.parseColor("#FB8C00")), lineWidth(5f),
-            lineJoin(Property.LINE_JOIN_ROUND), lineCap(Property.LINE_CAP_ROUND))
-            .withFilter(eq(get("dr"), literal(true))))
+            lineColor(Ui.DR), lineWidth(5f), *round)
+            .withFilter(isDr))
+        s.addLayer(CircleLayer("shock-dot", SRC_SHOCK).withProperties(      // potholes / bumps (Phase 7c)
+            circleRadius(6f), circleColor(Ui.SHOCK),
+            circleStrokeColor(Ui.BG), circleStrokeWidth(2f)))
+        val isPoint = eq(geometryType(), literal("Point"))
+        s.addLayer(CircleLayer("pos-halo", SRC_POS).withProperties(
+            circleRadius(26f), circleColor(modeColor), circleOpacity(0.22f), circleBlur(0.6f))
+            .withFilter(isPoint))
         s.addLayer(LineLayer("pos-heading", SRC_POS).withProperties(
-            lineColor(Color.parseColor("#0D47A1")), lineWidth(4f), lineCap(Property.LINE_CAP_ROUND)))
+            lineColor(modeColor), lineWidth(4f), lineCap(Property.LINE_CAP_ROUND)))
         s.addLayer(CircleLayer("pos-dot", SRC_POS).withProperties(
-            circleRadius(8f), circleColor(Color.parseColor("#0D47A1")),
-            circleStrokeColor(Color.WHITE), circleStrokeWidth(2f))
-            .withFilter(eq(geometryType(), literal("Point"))))
+            circleRadius(9f), circleColor(modeColor),
+            circleStrokeColor(Ui.TEXT), circleStrokeWidth(3f))
+            .withFilter(isPoint))
+    }
+
+    /** Keep the attribution and the followed car clear of the header and bottom sheet. */
+    fun setInsets(topPx: Int, bottomPx: Int) {
+        insetTop = topPx; insetBottom = bottomPx; applyInsets()
+    }
+
+    private fun applyInsets() {
+        val m = map ?: return
+        val gap = (8 * ctx.resources.displayMetrics.density).toInt()
+        m.uiSettings.setAttributionMargins(gap, 0, 0, insetBottom + gap)
+        @Suppress("DEPRECATION")
+        m.setPadding(0, insetTop, 0, insetBottom)
     }
 
     fun clear() {
@@ -125,7 +164,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
 
     fun update(s: NavState) {
         val p = Point.fromLngLat(s.lon, s.lat)
-        pos = p; psi = s.psi
+        pos = p; psi = s.psi; dr = s.outageActive
         val run = runs.lastOrNull()
         if (run == null || run.first != s.outageActive) {
             // new run starts at the previous run's last point so the line stays continuous
@@ -183,7 +222,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
             val tip = Point.fromLngLat(p.longitude() + dLon, p.latitude() + dLat)
             FeatureCollection.fromFeatures(listOf(
                 Feature.fromGeometry(LineString.fromLngLats(listOf(p, tip))),
-                Feature.fromGeometry(p)))
+                Feature.fromGeometry(p)).onEach { it.addBooleanProperty("dr", dr) })
         }
         st.getSourceAs<GeoJsonSource>(SRC_POS)?.setGeoJson(fc)
     }

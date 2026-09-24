@@ -54,6 +54,10 @@ def test_profile_matches_host_settings(name):
     ckpt = torch.load(os.path.join(MODEL_DIR, prof["checkpoint"]), map_location="cpu")
     assert prof["calib"] == pytest.approx(ckpt["calib"])
     assert prof["eskf"] == {**CB.ESKF_DEFAULT, **(ckpt.get("eskf_cfg") or {})}
+    # Phase 8 "live" block (SpeedProfile.kt reads it; absent keys = the pre-Phase-8 loop)
+    assert prof.get("live", CB.LIVE_DEFAULT) == {**CB.LIVE_DEFAULT, **(ckpt.get("live_cfg") or {})}
+    if prof.get("live", {}).get("fusion_head"):
+        assert os.path.exists(os.path.join(P.ASSETS, prof["live"]["fusion_head"])), "fusion head asset missing"
 
 
 def test_app_default_is_the_real_data_model_and_mirror_agrees():

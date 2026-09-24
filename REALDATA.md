@@ -240,3 +240,20 @@ The scaffold itself is verified by `tests/test_realdata_scaffold.py` (artifacts 
 provenance always written; smoke and QC-failure both blocked; clean input earns
 the stamp) on synthetic fixtures that are explicitly **never** treated as
 reportable; the IO-VNBD loader by `tests/test_iovnbd_sync.py`.
+
+## Phase 8: learned fusion head, real OSM roads, stops (2026-09-23)
+
+Full write-up: [README_PHASE8.md](README_PHASE8.md). The headline, live loop (edge engine
+= the phone's loop), median drift %:
+
+| | 10 s | 30 s | 60 s | 120 s |
+|---|--:|--:|--:|--:|
+| held-out train drives (leave-one-drive-out, ~1,400 outages): before → **fusion head** | 13.8 → **11.8** | 20.2 → **13.2** | 20.3 → **15.8** | 19.9 → **17.2** |
+| **test** (S3a + Y1, scored once; 5th look): before → fusion head | 14.5 → 13.5 | 17.3 → 15.3 | 17.5 → 17.1 | 16.6 → 19.6 |
+
+Still not at 10 %. On the test drives it is a tie on the mean, with a better tail. With
+**real** OpenStreetMap roads of the drive area (not the drive's own track), road snapping
+made outages worse. The app's snapping is now off by default and uses safe settings when
+on. Naive ZUPT is catastrophic; the strict detector is neutral and waits for the Redmi
+stationary test. The next accuracy lever is data from the target phone:
+`py/score_drive.py` scores a recorded Redmi drive in one command.

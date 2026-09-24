@@ -19,5 +19,15 @@
     "mm_cross_sigma": 5.0,
     "mm_heading_sigma_deg": 3.0,
     "mm_keep_speed": true
+  },
+  "live": {
+    "yaw_mode": "slow",
+    "mm_heading": false,
+    "mm_unique": true,
+    "mm_gate_deg": 15.0,
+    "map_default_on": false,
+    "mm_viterbi": false,
+    "zupt_strict": false,
+    "fusion_head": "fusion_head.json"
   }
 }

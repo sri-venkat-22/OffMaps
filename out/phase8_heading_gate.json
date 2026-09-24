@@ -1,0 +1,17 @@
+{
+  "gate_a": {
+    "car/fast": 19.90268767435596,
+    "car/slow": 2.531957397474451,
+    "car/coord": 2.747550026133843,
+    "two_wheeler/fast": 18.869748475498746,
+    "two_wheeler/slow": 14.337547246638193,
+    "two_wheeler/coord": 5.348253717217153
+  },
+  "gate_a_pass": true,
+  "gate_b": {
+    "mag_median": 16.969434888486745,
+    "mag_max": 33.64017728174005,
+    "none_median": 81.99186818017313
+  },
+  "gate_b_pass": true
+}

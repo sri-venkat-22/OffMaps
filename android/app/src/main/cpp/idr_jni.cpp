@@ -36,6 +36,10 @@ Java_com_offmaps_nav_IdrNative_idrInit(JNIEnv*, jobject, jlong h, jdouble e, jdo
     idr_init(H(idr_filter, h), e, n, psi, v);
 }
 JNIEXPORT void JNICALL
+Java_com_offmaps_nav_IdrNative_idrSetHeadingSigma(JNIEnv*, jobject, jlong h, jdouble sigma) {
+    idr_set_heading_sigma(H(idr_filter, h), sigma);
+}
+JNIEXPORT void JNICALL
 Java_com_offmaps_nav_IdrNative_idrSetProcessNoise(JNIEnv*, jobject, jlong h, jdouble arw, jdouble brw, jdouble srw) {
     idr_set_process_noise(H(idr_filter, h), arw, brw, srw);
 }

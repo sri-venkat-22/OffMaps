@@ -365,3 +365,43 @@ Not answerable on a desk: dead-reckoning accuracy, whether stops (ZUPT is off in
 the `nn_real` profile) hold still in a car, the trusted-GNSS path, real potholes.
 Those need a drive. Log one and score it with `validate_realdata.py --phone`
 (REALDATA.md).
+
+## 6i — UI redesign (2026-09-23)
+
+The nav screen was a stack of stock buttons over a text readout. It is now a dark
+"mission control" layout, still built in code (`Ui.kt` holds the palette and builders):
+
+- **Full-screen night map** (`assets/map/style.json` recoloured) with a glowing
+  position puck: cyan on GNSS, amber while dead-reckoning.
+- **Header card**: nav-mode pill (STANDBY / ACQUIRING GNSS / GNSS LOCK /
+  DEAD-RECKONING / SPOOF REJECTED; the alert states pulse) and chips for
+  satellites used, NavIC satellites, C/N0 and GNSS trust.
+- **Bottom sheet**: a system check while idle (offline map, road network, speed
+  model, IMU); while navigating, speed, a heading dial (`CompassView.kt`), and drift.
+- **Drift vs the ISRO limit** (`DriftChart.kt`): during a simulated outage, drift
+  vs GNSS truth is plotted against 10 % of the distance the *GNSS truth* moved
+  since the outage began. It stays on screen after GNSS is restored.
+- Launcher icon and theme (`res/`), and a dark load colour for the map.
+  The OSM attribution control stays on and sits above the sheet.
+
+No change to FusionEngine or the filter; host suite unchanged (163). Checked on the
+`offmaps34` emulator (idle, live, outage, restore, stop). The emulator's static IMU
+makes its drift numbers meaningless, so they say nothing about accuracy.
+
+## 6j: Phase 8 on the phone (2026-09-23)
+
+See [README_PHASE8.md](README_PHASE8.md). FusionEngine now takes its speed measurement and
+noise during an outage from the learned fusion head (`FusionHead.kt`, `assets/fusion_head.json`).
+It also has:
+- the yaw rate about true vertical ("slow"; "coord" with the Car / Two-wheeler toggle)
+- a magnetometer heading seed for a parked first fix (`idr_set_heading_sigma`)
+- GNSS-aided yaw alignment
+- road snapping off by default, with safe settings when on
+- live Viterbi, selectable
+- the strict ZUPT, selectable
+
+It records every session (`DriveRecorder.kt`) for `py/score_drive.py`. On the offmaps34
+emulator it ran a session end to end: head loaded and dead-reckoning, recorder wrote
+imu.csv and gnss.csv, no crash. The first emulator run found that the recorder lost its
+buffered GNSS rows at stop; it now flushes every fix. The profile's new `live` block is
+read by SpeedProfile.kt and pinned by `tests/test_phase6_shipped_model.py`.

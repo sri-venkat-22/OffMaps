@@ -53,6 +53,7 @@ def _decl(l):
     l.idr_update_crosstrack.argtypes = [v, d, d, d, d]
     l.idr_update_heading.argtypes = [v, d, d]
     l.idr_set_map_keep_speed.argtypes = [v, C.c_int]
+    l.idr_set_heading_sigma.argtypes = [v, d]
     l.mm_create.restype = v
     l.mm_add_way.argtypes = [v, P, P, C.c_int, C.c_int, C.c_int]
     l.mm_match.argtypes = [v, d, d, d, C.POINTER(C.c_double * 6)]
@@ -99,6 +100,7 @@ class Filter:
     def update_crosstrack(self, ne, nn, ci, s): self.l.idr_update_crosstrack(self.h, ne, nn, ci, s)
     def update_heading(self, brg, s): self.l.idr_update_heading(self.h, brg, s)
     def set_map_keep_speed(self, keep): self.l.idr_set_map_keep_speed(self.h, int(bool(keep)))
+    def set_heading_sigma(self, s): self.l.idr_set_heading_sigma(self.h, s)
     def state(self):
         out = (C.c_double * 5)()
         self.l.idr_get_state(self.h, C.byref(out)); return np.array(out)
@@ -233,6 +235,28 @@ ESKF_DEFAULT = dict(
     mm_heading_sigma_deg=3.0,  # road heading update sigma (deg), open road (corridor: 1)
     mm_keep_speed=False,       # road updates may not change speed (idr_set_map_keep_speed)
 )
+
+
+# Phase-8 live-loop switches (the phone profile's "live" block, SpeedProfile.kt). The defaults
+# are the pre-Phase-8 loop, so a checkpoint without "live_cfg" (nn.pt) behaves exactly as before;
+# nn_real.pt carries the choices README_PHASE8.md justifies.
+LIVE_DEFAULT = dict(
+    yaw_mode="fast",        # "fast" 0.5 s gravity | "slow" 30 s gravity | "coord" lean-compensated
+    mm_heading=True,        # road updates also pull heading
+    mm_unique=False,        # snap only when the match is unambiguous
+    mm_gate_deg=45.0,       # road bearing within this of the heading
+    map_default_on=True,    # the app's road-snapping toggle starts on
+    mm_viterbi=False,       # live fixed-lag Viterbi picks the road (road_window / RoadMatcher.decode)
+    zupt_strict=False,      # strict stop detector -> ZUPT while dead-reckoning
+    fusion_head=None,       # learned fusion head asset (model/fusion_head.py) or None
+)
+
+
+def live_config(ckpt_path=None):
+    import torch
+    from model.nn_model import DEFAULT
+    ck = torch.load(ckpt_path or DEFAULT, map_location="cpu")
+    return {**LIVE_DEFAULT, **(ck.get("live_cfg") or {})}
 
 
 def eskf_config(cfg=None):

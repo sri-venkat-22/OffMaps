@@ -13,8 +13,10 @@
     <uses-feature android:name="android.hardware.sensor.barometer" android:required="false" />
 
     <application
-        android:label="OffMaps Nav"
-        android:theme="@style/Theme.AppCompat.DayNight">
+        android:label="OffMaps"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.OffMaps">
 
         <!-- Phase 6: live on-device fusion + position render -->
         <activity
@@ -31,6 +33,7 @@
         <activity
             android:name="com.offmaps.logger.LoggerActivity"
             android:exported="true"
+            android:theme="@style/Theme.AppCompat.DayNight"
             android:keepScreenOn="true" />
     </application>
 </manifest>

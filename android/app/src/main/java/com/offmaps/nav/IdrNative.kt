@@ -28,6 +28,7 @@ object IdrNative {
     external fun idrUpdateCrosstrack(h: Long, ne: Double, nn: Double, crossInnov: Double, sigma: Double)
     external fun idrUpdateHeading(h: Long, bearing: Double, sigma: Double)
     external fun idrSetMapKeepSpeed(h: Long, keep: Boolean)
+    external fun idrSetHeadingSigma(h: Long, sigma: Double)
     external fun idrGetState(h: Long): DoubleArray   // [e, n, psi, v, b_g]
     external fun idrGetCov(h: Long): DoubleArray      // [P_ee, P_nn, P_psipsi]
 
@@ -103,6 +104,7 @@ class Filter : AutoCloseable {
         IdrNative.idrUpdateCrosstrack(h, ne, nn, ci, s)
     fun updateHeading(brg: Double, s: Double) = IdrNative.idrUpdateHeading(h, brg, s)
     fun setMapKeepSpeed(keep: Boolean) = IdrNative.idrSetMapKeepSpeed(h, keep)
+    fun setHeadingSigma(sigma: Double) = IdrNative.idrSetHeadingSigma(h, sigma)
     fun state(): DoubleArray = IdrNative.idrGetState(h)
     fun cov(): DoubleArray = IdrNative.idrGetCov(h)
     override fun close() = IdrNative.idrDestroy(h)

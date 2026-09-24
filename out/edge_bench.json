@@ -1,0 +1,61 @@
+{
+  "machine": "macOS-27.0-arm64-arm-64bit",
+  "processor": "arm",
+  "python": "3.11.9",
+  "single_thread": true,
+  "minutes": 30.0,
+  "results": [
+    {
+      "hz": 10.0,
+      "samples": 18000,
+      "drive_s": 1800.0,
+      "read_s": 0.02547337500436697,
+      "fuse_s": 1.1948250419955002,
+      "write_s": 0.14724504100740887,
+      "fuse_samples_per_s": 15064.96714358937,
+      "end_to_end_samples_per_s": 13162.28738078189,
+      "realtime_factor": 1316.228738078189,
+      "rows_out": 18000,
+      "median_err_gnss_m": 2.4018261971049597
+    },
+    {
+      "hz": 100.0,
+      "samples": 180000,
+      "drive_s": 1800.0,
+      "read_s": 0.21350250000250526,
+      "fuse_s": 2.229505084003904,
+      "write_s": 1.2799858749931445,
+      "fuse_samples_per_s": 80735.40683600648,
+      "end_to_end_samples_per_s": 48348.19130957317,
+      "realtime_factor": 483.4819130957318,
+      "rows_out": 180000,
+      "median_err_gnss_m": 1.8882499365522927
+    },
+    {
+      "hz": 200.0,
+      "samples": 360000,
+      "drive_s": 1800.0,
+      "read_s": 0.34227049999753945,
+      "fuse_s": 3.5524825000029523,
+      "write_s": 2.6011971660045674,
+      "fuse_samples_per_s": 101337.58575860706,
+      "end_to_end_samples_per_s": 55419.14435919945,
+      "realtime_factor": 277.09572179599724,
+      "rows_out": 360000,
+      "median_err_gnss_m": 1.8657674819600802
+    },
+    {
+      "hz": 400.0,
+      "samples": 720000,
+      "drive_s": 1800.0,
+      "read_s": 0.5158518340031151,
+      "fuse_s": 4.847959833001369,
+      "write_s": 3.9298007500037784,
+      "fuse_samples_per_s": 148516.08198128335,
+      "end_to_end_samples_per_s": 77472.56585419102,
+      "realtime_factor": 193.68141463547755,
+      "rows_out": 720000,
+      "median_err_gnss_m": 1.853035337472653
+    }
+  ]
+}

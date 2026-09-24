@@ -29,6 +29,15 @@ data class SpeedProfile(
     val mmCrossSigma: Double,   // road cross-track sigma (m), open road
     val mmHeadingSigmaDeg: Double,  // road heading sigma (deg), open road
     val mmKeepSpeed: Boolean,   // road updates may not change speed (idr_set_map_keep_speed)
+    // ---- "live" block (Phase 8; absent -> the pre-Phase-8 behaviour) ----
+    val yawMode: String = "fast",          // "fast" | "slow" | "coord" (HeadingAids.yawRate); two-wheeler forces coord
+    val mmHeading: Boolean = true,         // road updates also pull heading
+    val mmUnique: Boolean = false,         // snap only when the match is unambiguous (sole road within 30 m)
+    val mmGateDeg: Double = 45.0,          // road bearing must agree with heading within this
+    val mapDefaultOn: Boolean = true,      // road snapping toggle's initial state
+    val mmViterbi: Boolean = false,        // live fixed-lag Viterbi picks the road (RoadMatcher.decode)
+    val zuptStrict: Boolean = false,       // strict stop detector -> ZUPT while dead-reckoning
+    val fusionHead: String? = null,        // learned fusion head asset (FusionHeadAsset) or none
 ) {
     companion object {
         /**
@@ -55,7 +64,19 @@ data class SpeedProfile(
                 mmCrossSigma = e.optDouble("mm_cross_sigma", 1.5),
                 mmHeadingSigmaDeg = e.optDouble("mm_heading_sigma_deg", 3.0),
                 mmKeepSpeed = e.optBoolean("mm_keep_speed", false),
-            )
+            ).let { p ->
+                val l = j.optJSONObject("live") ?: return@let p
+                p.copy(
+                    yawMode = l.optString("yaw_mode", p.yawMode),
+                    mmHeading = l.optBoolean("mm_heading", p.mmHeading),
+                    mmUnique = l.optBoolean("mm_unique", p.mmUnique),
+                    mmGateDeg = l.optDouble("mm_gate_deg", p.mmGateDeg),
+                    mapDefaultOn = l.optBoolean("map_default_on", p.mapDefaultOn),
+                    mmViterbi = l.optBoolean("mm_viterbi", p.mmViterbi),
+                    zuptStrict = l.optBoolean("zupt_strict", p.zuptStrict),
+                    fusionHead = if (l.isNull("fusion_head")) null else l.optString("fusion_head"),
+                )
+            }
         }
     }
 }

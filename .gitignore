@@ -23,3 +23,9 @@ android/local.properties
 
 # Map source extract (re-downloadable from Geofabrik; see tools/build_map.sh)
 map/hyderabad/area.osm.pbf
+
+# Coventry/Warwickshire OSM (IO-VNBD area): re-downloadable inputs + intermediates (README_PHASE8 8d)
+map/coventry/*.osm.pbf
+map/coventry/*.geojsonseq
+map/coventry/build.log
+map/coventry/tiles.mbtiles

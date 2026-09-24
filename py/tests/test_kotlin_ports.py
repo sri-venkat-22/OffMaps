@@ -4,6 +4,10 @@ reference -- so a port is proven, not eyeballed.
   - nav/Level.kt (leveling the NN inputs into the z-up frame SpeedNet was trained
     in, incl. the re-mount snap) == model/mount.level_stream to 1e-9;
   - nav/Features.kt (window -> (9,20) feature tensor) == model/features.py;
+  - nav/FusionHead.kt (the learned fusion head's GRU ensemble + features)
+    == model/fusion_head.HeadRunner to 1e-9 on a whole outage;
+  - nav/HeadingAids.kt (yaw-rate modes, magnetometer heading, mount guess,
+    YawAlign) == heading_aids.py to 1e-12;
   - nav/Decimator.kt keeps the 10 Hz grid from a 200 Hz stream at real phone
     timestamps (the first version overflowed and dropped every sample).
 
@@ -54,6 +58,7 @@ def harness(tmp_path_factory):
     subprocess.run([java, "-cp", ":".join(JARS), "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
                     "-no-stdlib", "-no-reflect", "-classpath", JARS[1], "-jvm-target", "17", "-d", out,
                     f"{nav}/Level.kt", f"{nav}/Features.kt", f"{nav}/Decimator.kt",
+                    f"{nav}/FusionHead.kt", f"{nav}/HeadingAids.kt",
                     os.path.join(ROOT, "tools/kthost/Main.kt")],
                    check=True, capture_output=True)
     return lambda stdin, *args: subprocess.run([java, "-cp", f"{out}:{JARS[1]}", "com.offmaps.nav.MainKt", *args],
@@ -104,3 +109,69 @@ def test_decimator_keeps_10hz_at_phone_timestamps(harness):
     t0 = 86_400 * 10**9
     ts = "\n".join(str(t0 + i * 5_000_000) for i in range(2000))
     assert int(harness(ts + "\n", "decim").strip()) == 100
+
+
+def _head_weights(path, runner):
+    nets = runner.nets
+    H = nets[0].gru.hidden_size
+    out = [f"{len(nets)} {H}"]
+    for net in nets:
+        sd = net.state_dict()
+        for k in ("ctx.0.weight", "ctx.0.bias", "gru.weight_ih_l0", "gru.weight_hh_l0",
+                  "gru.bias_ih_l0", "gru.bias_hh_l0", "out.weight", "out.bias"):
+            a = sd[k].double().numpy()
+            a = a.reshape(a.shape[0], -1)
+            out.append(f"{a.shape[0]} {a.shape[1]} " + " ".join(repr(float(x)) for x in a.reshape(-1)))
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def test_fusion_head_kt_matches_python(harness, tmp_path):
+    import torch
+    from model.fusion_head import FusionHead, HeadRunner
+    torch.manual_seed(0)
+    runner = HeadRunner([FusionHead(16), FusionHead(16)])       # random weights: exercises every path
+    for n in runner.nets:
+        for p in n.parameters():
+            p.data.normal_(0, 0.4)
+    wp = str(tmp_path / "w.txt"); _head_weights(wp, runner)
+    rng = np.random.default_rng(1)
+    pre = [(float(rng.uniform(0, 15)), float(rng.uniform(0, 12))) for _ in range(150)]
+    v0, k, c = 11.3, 1.4, -0.7
+    st = runner.start(dict(v0=v0, k=k, c=c, pre=pre))
+    lines = [f"{v0} {k} {c} {len(pre)}"] + [f"{a} {b}" for a, b in pre]
+    ref = []
+    for tau in range(1, 41):
+        acc = rng.normal([0, 0, 9.81], 0.5, (10, 3)); gyr = rng.normal(0, 0.05, (10, 3))
+        vnn, sig = float(rng.uniform(0, 15)), float(rng.uniform(0.3, 4))
+        ref.append(runner.step(st, dict(vnn=vnn, sig=sig, tau=float(tau), acc=acc, gyro=gyr)))
+        lines.append(" ".join(repr(float(x)) for x in [vnn, sig, float(tau), *acc.reshape(-1), *gyr.reshape(-1)]))
+    kt = np.array([[float(x) for x in l.split()] for l in harness("\n".join(lines) + "\n", "head", wp).split("\n") if l])
+    assert np.max(np.abs(kt - np.array(ref))) < 1e-5            # torch float32 vs Kotlin double
+
+
+def test_heading_aids_kt_matches_python(harness):
+    import heading_aids as HA
+    rng = np.random.default_rng(2)
+    lines, ref = [], []
+    for _ in range(60):
+        g, uf, us, fw = rng.normal(0, 1, 3), rng.normal([0, 0, 9.8], 2, 3), rng.normal([0, 0, 9.8], 1, 3), rng.normal(0, 1, 3)
+        v = float(rng.uniform(0, 25))
+        for mode in ("fast", "slow", "coord"):
+            lines.append(f"yaw {mode} " + " ".join(repr(float(x)) for x in [*g, *uf, *us, *fw, v]))
+            ref.append([HA.yaw_rate(mode, tuple(g), tuple(uf), tuple(us), tuple(fw), v)])
+        m, decl = rng.normal(0, 30, 3), float(rng.uniform(-0.2, 0.2))
+        lines.append("mag " + " ".join(repr(float(x)) for x in [*m, *uf, *fw, decl]))
+        ref.append([HA.mag_heading(tuple(m), tuple(uf), tuple(fw), decl)])
+        lines.append("fwd " + " ".join(repr(float(x)) for x in uf))
+        ref.append(list(HA.default_forward(tuple(uf))))
+    ya = HA.YawAlign(); t = 0.0
+    for _ in range(80):
+        for _ in range(10):
+            a1, a2 = (float(x) for x in rng.normal(0, 1, 2))
+            lines.append(f"acc {a1!r} {a2!r}"); ya.add_acc(a1, a2)
+        t += 1.0; v = float(rng.uniform(0, 20))
+        lines.append(f"fix {t!r} {v!r}"); ya.on_fix(t, v); ref.append([ya.theta, float(ya.valid)])
+    kt = [[float(x) for x in l.split()] for l in harness("\n".join(lines) + "\n", "aids").split("\n") if l]
+    assert len(kt) == len(ref)
+    assert max(float(np.max(np.abs(np.array(a) - np.array(b)))) for a, b in zip(kt, ref)) < 1e-12

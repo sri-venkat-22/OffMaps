@@ -69,3 +69,21 @@ def test_gnss_vel_update_has_parity():
         return f.state()
     err = float(np.max(np.abs(seq(EskfRef()) - seq(Filter()))))
     assert err < 1e-9, f"gnss_vel parity failed: max|diff|={err:.2e}"
+
+
+def test_heading_sigma_has_parity_and_lets_gnss_course_correct():
+    """idr_set_heading_sigma: a magnetometer / unknown-bearing seed. Parity with the
+    oracle, and the point of it: after a wrong 60 deg seed, one GNSS course fix pulls
+    the heading most of the way with sigma=pi, but barely moves it at the default 1 deg."""
+    def seq(f, sig):
+        f.init(0.0, 0.0, np.radians(60), 10.0)
+        if sig is not None:
+            f.set_heading_sigma(sig)
+        f.predict(0.1, 0.0)
+        f.update_gnss_vel(10.0, 0.0, 0.2, np.radians(3))
+        return f.state()
+    for sig in (None, np.radians(20), np.pi):
+        err = float(np.max(np.abs(seq(EskfRef(), sig) - seq(Filter(), sig))))
+        assert err < 1e-12, f"heading_sigma parity failed at {sig}: {err:.2e}"
+    assert abs(np.degrees(seq(Filter(), np.pi)[2])) < 2.0
+    assert abs(np.degrees(seq(Filter(), None)[2])) > 50.0

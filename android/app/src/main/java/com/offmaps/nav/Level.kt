@@ -24,6 +24,9 @@ class Level(hz: Double = Features.HZ, tauS: Double = TAU_S) {
     /** The core's re-mount detector fired (aln changed): level to the new mount now. */
     fun onRemount() { if (have) for (i in 0..2) g[i] = gm[i] }
 
+    /** The slow (30 s) gravity: device-frame up, as the leveling uses it. */
+    fun up(): DoubleArray = g.copyOf()
+
     /** Advance one sample; writes leveled acc/gyro (gyro z = compass yaw rate). */
     fun step(acc: DoubleArray, gyro: DoubleArray, accOut: DoubleArray, gyroOut: DoubleArray) {
         if (!have) { for (i in 0..2) { g[i] = acc[i]; gm[i] = acc[i] }; have = true }

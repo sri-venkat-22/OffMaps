@@ -49,6 +49,11 @@ void idr_update_heading(idr_filter*, double bearing, double sigma);
  * real outages WORSE with the map (README_PHASE6 6d). Default 0 = the original
  * update, bit-exact. */
 void idr_set_map_keep_speed(idr_filter*, int keep);
+/* Heading uncertainty after an init: P_psipsi = sigma^2 and psi's cross-covariances
+ * zeroed. idr_init keeps the default 1 deg, which is right for a GNSS-course seed and
+ * wrong for a magnetometer seed (~15-20 deg) or no bearing at all (pass pi): with a
+ * 1 deg prior a wrong initial heading is trusted and GNSS course cannot correct it. */
+void idr_set_heading_sigma(idr_filter*, double sigma);
 void idr_get_state(const idr_filter*, double out[5]);
 
 /* Read the diagonal covariance the live loop needs for GNSS innovation gating:

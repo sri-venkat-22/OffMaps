@@ -1,0 +1,103 @@
+{
+  "data": "~/OffMaps-data/IO-VNBD-sync",
+  "split": {
+    "train": "/S1/|/S2/|/S4/",
+    "val": "/S3b/|/S3c/",
+    "test": "/Y1/|/S3a/|/S-M$"
+  },
+  "init": "synthetic",
+  "epochs": 6,
+  "lr": 0.001,
+  "extra_train": null,
+  "seed": 0,
+  "best_val_mae": 7.313657842920155,
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 42.30975308710215,
+      "mae": 7.313657842920155,
+      "bias": -7.013463608466493,
+      "z_var": 6.544100457504832,
+      "z_mean": -2.3635399831593022,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 1,
+      "loss": 40.392968138869925,
+      "mae": 8.371391460644311,
+      "bias": -8.203999587423407,
+      "z_var": 15.88072204412268,
+      "z_mean": -3.6221821379235815,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 2,
+      "loss": 39.584186164700256,
+      "mae": 7.919512005449586,
+      "bias": -7.67478072615061,
+      "z_var": 14.978032419439428,
+      "z_mean": -3.4715556409177073,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 3,
+      "loss": 38.53047752380371,
+      "mae": 9.4920827706187,
+      "bias": -9.366151001545242,
+      "z_var": 69.2789220557093,
+      "z_mean": -7.597487517850294,
+      "passed": false,
+      "n": 4189
+    }
+  ],
+  "calibration": {
+    "pick": "variance_only",
+    "raw_val": {
+      "mae": 7.313657842920155,
+      "bias": -7.013463608466493,
+      "z_var": 6.544100457504832,
+      "z_mean": -2.3635399831593022,
+      "passed": false,
+      "n": 4189
+    },
+    "val_affine": {
+      "mae": 14.99808026707824,
+      "bias": -1.138610819464808,
+      "z_var": 0.9823223729489188,
+      "z_mean": -0.38343944799395896,
+      "passed": false,
+      "n": 4189
+    },
+    "val_variance_only": {
+      "mae": 7.313657842920155,
+      "bias": -7.013463608466493,
+      "z_var": 1.0000000723778473,
+      "z_mean": -0.9239277054336885,
+      "passed": false,
+      "n": 4189
+    }
+  },
+  "synced_segments": {
+    "train": [
+      "S (Driver A)/S1/S-S1#0",
+      "S (Driver A)/S2/S-S2#0",
+      "S (Driver A)/S2/S-S2#1",
+      "S (Driver A)/S4/S-S4#0",
+      "S (Driver A)/S4/S-S4#1"
+    ],
+    "val": [
+      "S (Driver A)/S3b/S-S3b#1",
+      "S (Driver A)/S3c/S-S3c#0"
+    ],
+    "test": [
+      "M (Driver B)/S-M#0",
+      "M (Driver B)/S-M#1",
+      "M (Driver B)/S-M#2",
+      "S (Driver A)/S3a/S-S3a#0",
+      "Y (Driver D)/Y1/S-Y1#3"
+    ]
+  }
+}

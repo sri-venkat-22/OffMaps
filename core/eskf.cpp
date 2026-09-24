@@ -165,6 +165,10 @@ void idr_update_heading(idr_filter* f, double bearing, double sigma) {
     f->update_map(H, wrap(bearing - f->x[PSI]), sigma * sigma);
 }
 void idr_set_map_keep_speed(idr_filter* f, int keep) { f->map_keep_v = keep ? 1 : 0; }
+void idr_set_heading_sigma(idr_filter* f, double sigma) {
+    for (int i = 0; i < N; i++) { f->P[PSI][i] = 0.0; f->P[i][PSI] = 0.0; }
+    f->P[PSI][PSI] = sigma * sigma;
+}
 void idr_get_state(const idr_filter* f, double out[5]) {
     for (int i = 0; i < 5; i++) out[i] = f->x[i];
 }

@@ -211,6 +211,7 @@ def load_pair(s_path, v_path, *, root=None, min_corr=0.8, max_lag_s=MAX_LAG_S,
             meta={"path": s_path, "vehicle_path": v_path, "iovnbd_sync": True,
                   "tz_h": tz / 3600, "skew_s": delta, "yaw_col": gnames[j], "yaw_sign": sign,
                   "yaw_corr": c_al, "acc_corr": acc_corr,
+                  "lat0": float(lat[vi][0]), "lon0": float(lon[vi][0]),   # ENU origin (e, n = 0, 0)
                   "columns": dict(truth="V: lat/lon/velocity/heading",
                                   imu="S: accelerometer + gyroscope"),
                   "units": dict(time="s", speed_kmph=True, ecu_kmph=True)},

@@ -72,7 +72,7 @@ def profile_path(onnx_path):
 def build_profile(ckpt_path, onnx_path):
     """The phone-side contract for one checkpoint: which graph, its calibration,
     and the fusion settings it was validated with (defaults + checkpoint override)."""
-    from core_bridge import ESKF_DEFAULT          # needs the native core; only for --profile
+    from core_bridge import ESKF_DEFAULT, LIVE_DEFAULT   # needs the native core; only for --profile
     ckpt = torch.load(ckpt_path, map_location="cpu")
     calib = ckpt.get("calib") or {"a": 0.0, "b": 1.0, "s": 1.0}
     with open(onnx_path, "rb") as fh:
@@ -83,6 +83,7 @@ def build_profile(ckpt_path, onnx_path):
         "onnx_sha256": sha,
         "calib": {k: float(calib[k]) for k in ("a", "b", "s")},
         "eskf": {**ESKF_DEFAULT, **(ckpt.get("eskf_cfg") or {})},
+        "live": {**LIVE_DEFAULT, **(ckpt.get("live_cfg") or {})},
     }
 
 

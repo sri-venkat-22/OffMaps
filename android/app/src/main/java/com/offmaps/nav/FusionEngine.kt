@@ -1,6 +1,7 @@
 package com.offmaps.nav
 
 import android.content.Context
+import android.hardware.GeomagneticField
 import android.os.Handler
 import android.os.Looper
 import kotlin.math.PI
@@ -76,6 +77,9 @@ class FusionEngine(
     private val K_MIN = 1.0 / 3.0               // self-cal scale outside [K_MIN,K_MAX] is a degenerate
     private val SHOCK_MIN_SPEED = 3.0           // m/s: below this a "shock" is the phone being handled, not a road
     private val K_MAX = 3.0                     //   fit (NN not tracking speed), not a calibration
+    // strict stop detector (== edge_engine.STOP_*): SpeedNet < STOP_V for STOP_S s AND max |gyro| < STOP_GYRO
+    private val STOP_V = 0.3; private val STOP_S = 3; private val STOP_GYRO = 0.03
+    private val PRE_KEEP = 600                  // trusted (Doppler, NN) pairs kept for the fusion head's context
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -129,8 +133,21 @@ class FusionEngine(
     private var shockCount = 0
     private val pendingShocks = ArrayList<Double>()   // lat, lon pairs not yet published
 
+    // ---- Phase 8: learned fusion head, heading aids, strict ZUPT ----
+    private var head: FusionHead? = null
+    private var headState: FusionHead.State? = null
+    private val pre = ArrayDeque<DoubleArray>()        // (Doppler, NN raw) per trusted fix
+    private val yawAlign = YawAlign()
+    private val mag = DoubleArray(3); private var haveMag = false; private var lastMagNs = 0L
+    private var stillS = 0
+    private var lastYaw = 0.0
+    var headingSeed = "none"; private set
+    private val vitHist = ArrayDeque<DoubleArray>(); private var vitWay = -1; private var vitCor = false
+    @Volatile private var vehicle = "car"          // "car" | "two_wheeler" (two-wheeler: lean-compensated yaw)
+
     @Volatile private var masked = false
-    @Volatile private var mapAid = true
+    // initial road-snap state from the profile (nn_real: off -- real-road check, README_PHASE8 8d)
+    @Volatile private var mapAid = try { SpeedProfile.fromAssets(context, profileName).mapDefaultOn } catch (e: Exception) { true }
     @Volatile private var running = false
 
     /** Outage Simulator toggle. Volatile: set from the UI thread, read on the fusion thread. */
@@ -140,6 +157,10 @@ class FusionEngine(
     /** Road-snapping toggle (only acts while dead-reckoning). */
     fun setMapAid(on: Boolean) { mapAid = on }
     fun isMapAid() = mapAid
+
+    /** Vehicle type: "two_wheeler" switches the yaw rate to the lean-compensated one. */
+    fun setVehicle(v: String) { vehicle = v }
+    fun getVehicle() = vehicle
 
     /** Hand over the offline road network once it has loaded (any thread). */
     fun setRoads(r: RoadNetwork?) { roads = r }
@@ -152,6 +173,8 @@ class FusionEngine(
         speedCal = SpeedCal()
         align = Align()
         net = SpeedNet.fromAssets(context, p)
+        head = p.fusionHead?.let { FusionHeadAsset.load(context, it) }
+        mapAid = p.mapDefaultOn
         resetStreaming()
         running = true
     }
@@ -171,6 +194,8 @@ class FusionEngine(
         stepsSinceGnss = 0; rejects = 0; drSteps = 0; snapped = false
         rawT0Ns = 0L; rawCount = 0; shockCount = 0; pendingShocks.clear()
         enu = Enu()                                      // new session -> new origin at its first fix
+        headState = null; pre.clear(); yawAlign.reset(); haveMag = false; stillS = 0; lastYaw = 0.0
+        headingSeed = "none"
     }
 
     private fun deadReckoning() = masked || stepsSinceGnss > GNSS_STALE_STEPS
@@ -185,17 +210,32 @@ class FusionEngine(
      */
     private fun mapMatchUpdate(f: Filter) {
         snapped = false
+        if (!deadReckoning()) { vitHist.clear(); vitWay = -1 }
         if (!mapAid || !deadReckoning()) return
         val p = profile ?: return
         val r = roads ?: return
-        val rm = roadMatcher ?: RoadMatcher(r, enu).also { roadMatcher = it }
+        val rm = roadMatcher ?: RoadMatcher(r, enu, p.mmViterbi).also { roadMatcher = it }
         val st = f.state()
-        val m = rm.match(st[0], st[1], st[2])
+        val m = if (p.mmViterbi) {                                    // live fixed-lag Viterbi (Phase 7b online)
+            if (drSteps % NN_EVERY_STEPS == 1) {
+                vitHist.addLast(doubleArrayOf(st[0], st[1], st[2]))
+                if (vitHist.size > RoadMatcher.LAG) vitHist.removeFirst()
+                val d = rm.decode(vitHist.toList()); vitWay = d.first; vitCor = d.second
+            }
+            rm.project(vitWay, st[0], st[1], st[2], vitCor)
+        } else rm.match(st[0], st[1], st[2])
         if (!m.matched || abs(m.cross) > MM_MAX_CROSS) return
+        // Phase 8 safeguards (edge_engine._map_step): on real OSM roads a snap to the wrong street
+        // at a junction, plus its heading pull, made outages far worse (README_PHASE8 8d)
+        if (p.mmUnique && !m.corridor) return
+        val db = abs(wrapPi(m.bearing - st[2]))
+        if (minOf(db, PI - db) > Math.toRadians(p.mmGateDeg)) return
         val nx = -cos(m.bearing); val ny = sin(m.bearing)            // left-normal (matches C++ cross sign)
         f.updateCrosstrack(nx, ny, m.cross, if (m.corridor) 0.3 else p.mmCrossSigma)
-        val tgt = if (abs(wrapPi(m.bearing - st[2])) < PI / 2) m.bearing else m.bearing + PI
-        f.updateHeading(tgt, Math.toRadians(if (m.corridor) 1.0 else p.mmHeadingSigmaDeg))
+        if (p.mmHeading) {
+            val tgt = if (db < PI / 2) m.bearing else m.bearing + PI
+            f.updateHeading(tgt, Math.toRadians(if (m.corridor) 1.0 else p.mmHeadingSigmaDeg))
+        }
         snapped = true
     }
 
@@ -204,18 +244,30 @@ class FusionEngine(
         return (if (x < 0) x + 2 * PI else x) - PI
     }
 
+    /** Magnetometer (device frame, uT): EMA only; used once, to seed heading at a course-less first fix. */
+    fun onMag(tNs: Long, mx: Double, my: Double, mz: Double) {
+        if (!running) return
+        if (!haveMag) { mag[0] = mx; mag[1] = my; mag[2] = mz; haveMag = true }
+        else {
+            val a = 1.0 - exp(-((tNs - lastMagNs).coerceAtLeast(0L) * 1e-9) / 1.0)
+            mag[0] += a * (mx - mag[0]); mag[1] += a * (my - mag[1]); mag[2] += a * (mz - mag[2])
+        }
+        lastMagNs = tNs
+    }
+
+    /** Vehicle forward axis (device frame): GNSS-aided yaw alignment once converged, else the mount guess. */
+    private fun forward(): DoubleArray =
+        if (yawAlign.valid) yawAlign.forward(Level.basis(level.up())) else HeadingAids.defaultForward(level.up())
+
     // ---------------- IMU: high-rate, decimated to 10 Hz ----------------
     fun onImu(tNs: Long, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
         if (!running) return
         highRate(tNs, ax, ay, az)                        // every raw sample: pothole / bump front-end
         if (!decimator.accept(tNs)) return               // keep the 10 Hz grid
 
-        // gravity EMA -> up vector -> gravity-projected yaw rate (phone_log convention)
+        // fast (0.5 s) gravity EMA: the "fast"/"coord" yaw projections use it (phone_log convention)
         if (!haveGrav) { grav[0] = ax; grav[1] = ay; grav[2] = az; haveGrav = true }
         else { grav[0] += GRAV_A * (ax - grav[0]); grav[1] += GRAV_A * (ay - grav[1]); grav[2] += GRAV_A * (az - grav[2]) }
-        val gn = sqrt(grav[0] * grav[0] + grav[1] * grav[1] + grav[2] * grav[2]).coerceAtLeast(1e-6)
-        val ux = grav[0] / gn; val uy = grav[1] / gn; val uz = grav[2] / gn
-        val gyroZ = YAW_SIGN * (gx * ux + gy * uy + gz * uz)
         lastAlat = ay                                    // device-y accel = curvature lateral accel
 
         // mount alignment / re-mount detector: a re-mount re-levels the NN inputs at once
@@ -223,12 +275,20 @@ class FusionEngine(
         val dtStep = if (lastStepNs == 0L) 1.0 / Features.HZ else (tNs - lastStepNs) * 1e-9
         align?.let { a ->
             a.update(ax, ay, az, gx, gy, gz, dtStep)
-            if (a.get().changed) { lastAlignChanged = true; level.onRemount() }
+            if (a.get().changed) { lastAlignChanged = true; level.onRemount(); yawAlign.reset() }
         }
 
         // push the LEVELED sample into the NN ring buffer: SpeedNet was trained on a
         // z-up frame, and a dash-mounted phone has y up (py/model/mount.py)
         level.step(doubleArrayOf(ax, ay, az), doubleArrayOf(gx, gy, gz), accL, gyrL)
+        yawAlign.addAcc(accL[0], accL[1])
+        // yaw rate about TRUE vertical (HeadingAids): "slow" = 30 s gravity, exact for a car; the old
+        // 0.5 s projection ("fast") under-reads turns by cos(atan(v*psidot/g)); a two-wheeler leans,
+        // so it needs the coordinated-turn tilt-back ("coord")
+        val mode = if (vehicle == "two_wheeler") "coord" else (profile?.yawMode ?: "fast")
+        val gyroZ = HeadingAids.yawRate(mode, doubleArrayOf(gx, gy, gz), grav.copyOf(), level.up(),
+            if (mode == "coord") forward() else null, filter?.state()?.get(3) ?: 0.0)
+        lastYaw = gyroZ
         accBuf[bufHead][0] = accL[0]; accBuf[bufHead][1] = accL[1]; accBuf[bufHead][2] = accL[2]
         gyrBuf[bufHead][0] = gyrL[0]; gyrBuf[bufHead][1] = gyrL[1]; gyrBuf[bufHead][2] = gyrL[2]
         bufHead = (bufHead + 1) % Features.WIN
@@ -241,6 +301,8 @@ class FusionEngine(
         f.predict(dtStep, gyroZ)
         lastStepNs = tNs
         drSteps = if (deadReckoning()) drSteps + 1 else 0
+        if (drSteps == 1) headState = head?.start(f.state()[3], k, c, pre.toList())   // outage begins: freeze context
+        else if (drSteps == 0) headState = null
 
         // 1 s NN cadence: speed / ZUPT update
         stepsSinceNn++
@@ -250,7 +312,22 @@ class FusionEngine(
             val pred = net!!.predict(accW, gyrW)          // [v_calibrated, sigma]
             vNnRaw = pred[0]; sigHeld = pred[1]           // always: the self-cal regressor
             vHeld = calApply(vNnRaw)                      // Doppler self-cal (frozen k,c)
-            if (deadReckoning() && drSteps > (p.handoverS * Features.HZ).toInt()) {   // else Doppler speed held
+            var gMax = 0.0; var yawSum = 0.0
+            for (i in Features.WIN - NN_EVERY_STEPS until Features.WIN) {
+                gMax = maxOf(gMax, sqrt(gyrW[i][0] * gyrW[i][0] + gyrW[i][1] * gyrW[i][1] + gyrW[i][2] * gyrW[i][2]))
+                yawSum += gyrW[i][2]
+            }
+            stillS = if (vNnRaw < STOP_V && gMax < STOP_GYRO) stillS + 1 else 0
+            val hd = head; val hs = headState
+            if (deadReckoning() && p.zuptStrict && stillS >= STOP_S) {
+                f.updateZupt(yawSum / NN_EVERY_STEPS)     // strict stop: v = 0 and gyro bias (ZARU)
+            } else if (deadReckoning() && hd != null && hs != null) {
+                // learned fusion head (FusionHead.kt): the speed measurement AND its sigma
+                val last = Features.WIN - NN_EVERY_STEPS
+                val r = hd.step(hs, vNnRaw, sigHeld, drSteps / Features.HZ,
+                                accW.copyOfRange(last, Features.WIN), gyrW.copyOfRange(last, Features.WIN))
+                f.updateSpeed(r[0], r[1])
+            } else if (deadReckoning() && drSteps > (p.handoverS * Features.HZ).toInt()) {   // else Doppler speed held
                 val zv = p.zuptV
                 if (zv != null && vHeld < zv) f.updateZupt(gyroZ) else f.updateSpeed(vHeld, sigHeld * p.sigScale)
             }
@@ -283,7 +360,17 @@ class FusionEngine(
         val hasSpeed = !doppSpeed.isNaN()
 
         if (!initialized) {                               // first fix seeds the filter at the origin
-            filter!!.init(0.0, 0.0, if (hasBearing) bearingRad else 0.0, if (hasSpeed) doppSpeed else 0.0)
+            val f0 = filter!!
+            val v0 = if (hasSpeed) doppSpeed else 0.0
+            if (hasBearing && (!hasSpeed || doppSpeed >= 1.0)) {          // a real course over ground
+                f0.init(0.0, 0.0, bearingRad, v0); headingSeed = "gnss"
+            } else {                                                      // parked: GNSS bearing is noise
+                val decl = Math.toRadians(GeomagneticField(lat.toFloat(), lon.toFloat(), 0f,
+                                                           System.currentTimeMillis()).declination.toDouble())
+                val h = if (haveMag) HeadingAids.magHeading(mag, level.up(), forward(), decl) else null
+                if (h != null) { f0.init(0.0, 0.0, h, v0); f0.setHeadingSigma(HeadingAids.MAG_SIGMA); headingSeed = "magnetometer" }
+                else { f0.init(0.0, 0.0, 0.0, v0); f0.setHeadingSigma(HeadingAids.UNKNOWN_SIGMA); headingSeed = "unknown" }
+            }
             initialized = true; stepsSinceGnss = 0
             publish(newGnss = true)
             return
@@ -337,6 +424,10 @@ class FusionEngine(
                 f.updateGnssVel(doppSpeed, bearingRad, sigmaV, sigmaPsi)
             }
             // Doppler self-calibration: regress Doppler on the (noisy) NN speed, Deming-weighted.
+            if (hasSpeed && trust >= TRUST_APPLIED) {                 // yaw alignment + fusion-head context
+                yawAlign.onFix(lastStepNs * 1e-9, doppSpeed)
+                pre.addLast(doubleArrayOf(doppSpeed, vNnRaw)); if (pre.size > PRE_KEEP) pre.removeFirst()
+            }
             if (hasSpeed && vNnRaw > 0.0 && trust >= TRUST_APPLIED) {   // trusted Doppler only
                 sumSigSq += sigHeld * sigHeld; calPushes++
                 val meanSigSq = (sumSigSq / calPushes).coerceAtLeast(1e-9)

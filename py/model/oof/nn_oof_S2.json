@@ -1,0 +1,113 @@
+{
+  "data": "~/OffMaps-data/IO-VNBD-sync",
+  "split": {
+    "train": "/S-M$|/S1/|/S4/",
+    "val": "/S3b/|/S3c/",
+    "test": "/Y1/|/S3a/|/S2/"
+  },
+  "init": "synthetic",
+  "epochs": 6,
+  "lr": 0.001,
+  "extra_train": null,
+  "seed": 0,
+  "best_val_mae": 6.390220156299019,
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 44.79194594558688,
+      "mae": 6.931406349886124,
+      "bias": -6.452947895429407,
+      "z_var": 4.51921391992182,
+      "z_mean": -2.089130563167445,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 1,
+      "loss": 42.365307815449846,
+      "mae": 6.390220156299019,
+      "bias": -5.705340662150621,
+      "z_var": 3.9244412323598206,
+      "z_mean": -1.7168006334108183,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 2,
+      "loss": 41.35010869964803,
+      "mae": 6.702254788195963,
+      "bias": -6.255264193394715,
+      "z_var": 5.322243226497281,
+      "z_mean": -2.1014556655463195,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 3,
+      "loss": 40.262050617081364,
+      "mae": 7.0236826212741645,
+      "bias": -6.664933400752369,
+      "z_var": 7.304866438822613,
+      "z_mean": -2.460519192967975,
+      "passed": false,
+      "n": 4189
+    },
+    {
+      "epoch": 4,
+      "loss": 38.700060602962864,
+      "mae": 6.553256690818436,
+      "bias": -5.882142586032562,
+      "z_var": 7.085973558510457,
+      "z_mean": -2.230670409764209,
+      "passed": false,
+      "n": 4189
+    }
+  ],
+  "calibration": {
+    "pick": "variance_only",
+    "raw_val": {
+      "mae": 6.390220156299019,
+      "bias": -5.705340662150621,
+      "z_var": 3.9244412323598206,
+      "z_mean": -1.7168006334108183,
+      "passed": false,
+      "n": 4189
+    },
+    "val_affine": {
+      "mae": 10.210338088490879,
+      "bias": -0.9749245626375395,
+      "z_var": 0.9664907581946369,
+      "z_mean": -0.33305212781325616,
+      "passed": false,
+      "n": 4189
+    },
+    "val_variance_only": {
+      "mae": 6.390220156299019,
+      "bias": -5.705340662150621,
+      "z_var": 1.000000038469582,
+      "z_mean": -0.8666244921681393,
+      "passed": false,
+      "n": 4189
+    }
+  },
+  "synced_segments": {
+    "train": [
+      "M (Driver B)/S-M#0",
+      "M (Driver B)/S-M#1",
+      "M (Driver B)/S-M#2",
+      "S (Driver A)/S1/S-S1#0",
+      "S (Driver A)/S4/S-S4#0",
+      "S (Driver A)/S4/S-S4#1"
+    ],
+    "val": [
+      "S (Driver A)/S3b/S-S3b#1",
+      "S (Driver A)/S3c/S-S3c#0"
+    ],
+    "test": [
+      "S (Driver A)/S2/S-S2#0",
+      "S (Driver A)/S2/S-S2#1",
+      "S (Driver A)/S3a/S-S3a#0",
+      "Y (Driver D)/Y1/S-Y1#3"
+    ]
+  }
+}
