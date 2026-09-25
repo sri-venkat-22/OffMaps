@@ -1379,9 +1379,10 @@
   },
   "live_tuning": {
     "date": "2026-09-23",
-    "readme": "README_PHASE8.md",
+    "readme": "REALDATA.md (Phase 8); full write-up: git show ec89099:README_PHASE8.md",
     "yaw_mode": "slow: exact yaw rate for a car (phase8_heading_gate); equal to fast on IO-VNBD",
     "map": "real-OSM check: snapping hurt (val 11.3->31.7%, train 17.2->33.8%); safe settings, off by default",
+    "map_2026_09_25": "superseded: HMM road matching (py/road_hmm.py, mm_hmm) on by default; train LODO 13.6->11.7 % (py/phase9_map_eval.py)",
     "zupt": "strict detector neutral on IO-VNBD; off until the Redmi stationary test (score_drive.py)",
     "fusion_head": "chosen by leave-one-drive-out live loop on train (18.5 -> 14.5% mean); val 14.1 vs 15.1 disagreed on medians, tail improved"
   },

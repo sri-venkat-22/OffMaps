@@ -47,7 +47,7 @@ import kotlin.math.sqrt
  * speed. Fusing a net that is metres/second off on real roads pulled the filter away
  * from Doppler before every fix, the spoof check rejected the fix, and GNSS was locked
  * out for good -- measured on real IO-VNBD val drives with the old nn profile: 99% of
- * fixes rejected, 12.6 km median error WITH GNSS on (README_PHASE6.md, "Real-data fix").
+ * fixes rejected, 12.6 km median error WITH GNSS on (Phase 6 write-up §6c, git show ec89099:README_PHASE6.md).
  *
  * The filter settings (noise, zupt_v, curv, sig_scale) come from the model's
  * SpeedProfile -- the ones core_bridge.eskf_config gives that checkpoint on host.
@@ -246,7 +246,7 @@ class FusionEngine(
         } else rm.match(st[0], st[1], st[2])
         if (!m.matched || abs(m.cross) > MM_MAX_CROSS) return
         // Phase 8 safeguards (edge_engine._map_step): on real OSM roads a snap to the wrong street
-        // at a junction, plus its heading pull, made outages far worse (README_PHASE8 8d)
+        // at a junction, plus its heading pull, made outages far worse (Phase 8 §8d; re-measured by py/phase9_map_eval.py)
         if (p.mmUnique && !m.corridor) return
         val db = abs(wrapPi(m.bearing - st[2]))
         if (minOf(db, PI - db) > Math.toRadians(p.mmGateDeg)) return

@@ -46,7 +46,7 @@ void idr_update_heading(idr_filter*, double bearing, double sigma);
  * A road fixes the lane and the direction, never the distance travelled; with a
  * loose speed random walk (the real-data srw=24) an unrestricted crosstrack
  * innovation leaked into v through the heading/position correlation and made
- * real outages WORSE with the map (README_PHASE6 6d). Default 0 = the original
+ * real outages WORSE with the map (Phase 6 write-up §6d, git show ec89099:README_PHASE6.md). Default 0 = the original
  * update, bit-exact. keep is a bitmask: 1 = speed (the original meaning of any
  * non-zero value that callers pass as 1), 2 = gyro bias, 3 = both: a wrong road
  * then cannot teach the filter a false bias that keeps turning it after the snap. */

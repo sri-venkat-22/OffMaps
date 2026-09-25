@@ -46,7 +46,7 @@ WITHOUT retraining:
     python -m model.export           # model/nn.pt -> model/nn.onnx (+ parity check)
 
 For the phone, add `--profile` to also write `<name>.profile.json` (calib + fusion
-settings) next to the graph; see README_PHASE6.md §6c.
+settings) next to the graph; see the Phase 6 write-up §6c (`git show ec89099:README_PHASE6.md`).
 
 It exports a **dynamic batch axis** (`nn_model` runs a whole outage of 1 s steps
 in one call, not batch-1) and then loads the graph under **onnxruntime** to

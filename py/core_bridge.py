@@ -239,7 +239,7 @@ ESKF_DEFAULT = dict(
 
 # Phase-8 live-loop switches (the phone profile's "live" block, SpeedProfile.kt). The defaults
 # are the pre-Phase-8 loop, so a checkpoint without "live_cfg" (nn.pt) behaves exactly as before;
-# nn_real.pt carries the choices README_PHASE8.md justifies.
+# nn_real.pt carries the choices measured by py/phase8_eval.py (and, for the map, py/phase9_map_eval.py).
 LIVE_DEFAULT = dict(
     yaw_mode="fast",        # "fast" 0.5 s gravity | "slow" 30 s gravity | "coord" lean-compensated
     mm_heading=True,        # road updates also pull heading

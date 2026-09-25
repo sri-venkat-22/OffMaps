@@ -4,7 +4,8 @@ This module now holds **two** activities:
 
 - **`nav/NavActivity`** — the launcher. The **real on-device nav app** (Phase 6):
   it embeds `libidr` via NDK/JNI, runs the ESKF **live**, honours the outage flag
-  against the live filter, and renders position. See [../README_PHASE6.md](../README_PHASE6.md).
+  against the live filter, and renders position. See `nav/FusionEngine.kt`; the Phase 6
+  write-up is in git history (`git show ec89099:README_PHASE6.md`).
 - **`logger/LoggerActivity`** — the Phase-1 logger below. Its whole job: record
   raw IMU + GNSS to CSV so a real drive replays through the Python harness. It
   does no fusion; it's the data-capture tool, not the nav app.

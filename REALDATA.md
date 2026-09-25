@@ -218,10 +218,10 @@ also tuned on synthetic and are untested on real maps.
 **On the phone (2026-09-23):** the app now runs `nn_real` with these settings,
 read from `assets/nn_real.profile.json`. Porting it exposed a live-loop GNSS lockout
 (the old app rejected ~99 % of real fixes). Fix and live-loop numbers on val
-drives are in README_PHASE6.md §6c: 11.3 % median 60 s drift with Doppler self-cal
+drives are in the Phase 6 write-up §6c (`git show ec89099:README_PHASE6.md`; removed from the tree): 11.3 % median 60 s drift with Doppler self-cal
 warmed up by the preceding GNSS, versus 19–20 % for the cold-start harness above.
 Later the same day: physics→NN hand-over, keep-speed road snapping, and leveling
-of the NN inputs (README_PHASE6 §6d–6e). Final held-out live-loop result (4th look
+of the NN inputs (same write-up, §6d–6e). Final held-out live-loop result (4th look
 at test): 11.2 / 17.1 / 17.0 / 17.3 % at 10/30/60/120 s, vs physics 11.2 / 17.2 /
 23.7 / 29.5 %.
 
@@ -243,7 +243,8 @@ reportable; the IO-VNBD loader by `tests/test_iovnbd_sync.py`.
 
 ## Phase 8: learned fusion head, real OSM roads, stops (2026-09-23)
 
-Full write-up: [README_PHASE8.md](README_PHASE8.md). The headline, live loop (edge engine
+Full write-up: `git show ec89099:README_PHASE8.md` (removed from the tree; the scripts are `py/phase8_eval.py` and
+`py/phase8_heading_gate.py`). The headline, live loop (edge engine
 = the phone's loop), median drift %:
 
 | | 10 s | 30 s | 60 s | 120 s |

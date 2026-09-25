@@ -70,7 +70,7 @@ object IdrNative {
     external fun vibPush(h: Long, ax: Double, ay: Double, az: Double, dt: Double): Int
     external fun vibWindow(h: Long): DoubleArray      // [rms_clean, rms_raw, shock_frac, n_events]
 
-    // idr3d (Phase 7a) -- 3D 16-state ESKF (bound, not in the live loop: see README_PHASE6 6f)
+    // idr3d (Phase 7a) -- 3D 16-state ESKF (bound, not in the live loop: Phase 6 write-up §6f, git show ec89099:README_PHASE6.md)
     external fun idr3dCreate(): Long
     external fun idr3dDestroy(h: Long)
     external fun idr3dInit(h: Long, p: DoubleArray, v: DoubleArray, q: DoubleArray)

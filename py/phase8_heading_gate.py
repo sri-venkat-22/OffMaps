@@ -6,7 +6,7 @@ Physics-exact synthetic rigs (data/synth_rig.py: device-frame IMU + magnetometer
 dash/handlebar mount rotated 12 deg yaw / 8 deg tilt, MEMS gyro, 100 Hz) driven
 through the edge engine (the phone's loop). Only HEADING is scored here: the speed
 model was trained on cars (IO-VNBD) and nothing about two-wheeler speed can be
-claimed without a two-wheeler recording -- see README_PHASE8.md.
+claimed without a two-wheeler recording -- see the Phase 8 write-up §8f (git show ec89099:README_PHASE8.md).
 
 Gate A (yaw rate about true vertical). 60 s GNSS outages every 3 min; heading
 error at each outage end, per yaw mode:
