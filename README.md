@@ -102,6 +102,38 @@ Notes on the tables:
 
 ![One outage](out/demo/demo_outage.png)
 
+### A tunnel in Hyderabad: the PS benchmark
+
+The PS example is under 100 m of error over 1 km of tunnel at about 60 km/h. Hyderabad has no
+1 km road tunnel; the longest in the map is the Mindspace Underpass in HITEC City (about 360 m per
+carriageway). `py/tunnel_scenario.py` drives real OSM routes through it, both directions, and
+removes GNSS over the underpass and over 1 km centred on it.
+
+A synthetic IMU cannot test this system, because SpeedNet reads real phone vibration. So every run
+uses **real phone recordings** from IO-VNBD drives the models never saw, moved onto the Hyderabad
+route:
+- kept as recorded: the phone's own vibration, bias and noise, and the car's real speed;
+- replaced: the car's own turns are taken out of the gyro and the route's put in.
+
+A control runs the same stretches on their own roads, and it agrees (last column).
+
+| 1 km at ~61 km/h, 110 runs on train drives | exit error, median | under 100 m | same stretches, own road |
+|---|--:|--:|--:|
+| Gyro heading + entry speed (no AI) | 137 m | 35 % | 13.8 % drift |
+| + SpeedNet (AI speed) | 250 m | 21 % | 25.2 % |
+| + learned fusion head | 167 m | 17 % | 13.3 % |
+| + HMM road matching (shipped) | 163 m | 24 % | 12.6 % |
+
+- **The benchmark is not met:** the shipped app ends a median 163 m off and passes in about a quarter of runs.
+- **In steady traffic, holding the entrance speed beats the AI speed.** The runs are chosen as cruising
+  (45–75 km/h, never below 30 km/h). On the general outages above, the AI wins (24.2 % → 17.7 %). The next
+  step is to let the fusion head keep the entrance speed when the traffic before the tunnel was steady.
+- With the fusion head and the map, the Hyderabad runs are about 3.5 points worse than the same stretches on
+  their own roads. That comes from the route (sharper junction turns, a different map) and possibly from the
+  transplant disturbing the head's inputs; the no-AI and SpeedNet stages agree to 0.2 points.
+- Validation drives (13 runs at 1 km, 67 on the underpass) and every table: `out/tunnel/summary.md`.
+  Replay it on the [demo page](https://sri-venkat-22.github.io/OffMaps/) under "Mindspace Underpass".
+
 Other measured properties (each one is produced by the script or pinned by the test named):
 
 | | result | source |
@@ -134,7 +166,7 @@ Other measured properties (each one is produced by the script or pinned by the t
 | 12 | **Edge engine** for external IMUs | `edge_engine.py`: streaming CLI, any IMU rate, phone-logger or generic CSV | ✅ `py/edge_engine.py`, `py/tests/test_edge_engine.py` |
 | 13 | **10 Hz** phone, **~200 Hz** FOG | 10–400 Hz input; ~280× real time at 200 Hz | ✅ |
 | 14 | Magnetometer / compass input | Tilt-compensated heading seed when parked (σ 20°); not fused continuously, because in-car magnetic fields make it worse than the gyro over an outage | 🟡 `py/heading_aids.py` |
-| 15 | **Drift < 10 %** of distance in the outage | 11.7 % as shipped (13.6 % without the map) on train drives; 16.4 % on test | ❌ not yet (§Results) |
+| 15 | **Drift < 10 %** of distance in the outage (e.g. < 100 m over 1 km in a tunnel) | 11.7 % as shipped (13.6 % without the map) on train drives; 16.4 % on test; Hyderabad tunnel, 1 km: median 163 m, under 100 m in 24 % of runs | ❌ not yet (§Results) |
 | 16 | Two-wheelers and other vehicles | Lean-compensated heading (5.4° vs 14.3° without); car / two-wheeler switch in the app | 🟡 speed untested on a two-wheeler: no recording yet |
 | 17 | Bring trained models and offline maps | In the repo: `android/app/src/main/assets/` (models, map), `map/` | ✅ |
 

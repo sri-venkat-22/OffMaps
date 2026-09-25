@@ -258,3 +258,42 @@ made outages worse. The app's snapping is now off by default and uses safe setti
 on. Naive ZUPT is catastrophic; the strict detector is neutral and waits for the Redmi
 stationary test. The next accuracy lever is data from the target phone:
 `py/score_drive.py` scores a recorded Redmi drive in one command.
+
+## Hyderabad tunnel scenario (2026-09-25)
+
+`py/tunnel_scenario.py`. The Mindspace Underpass (HITEC City, ~360 m per carriageway, the longest road
+tunnel in the Hyderabad OSM extract), both directions, on ~7 km main-road routes built on the real network.
+GNSS removed over the underpass, and over 1 km centred on it (the PS benchmark).
+
+**Why a transplant, not a simulation:** on a synthetic IMU (`data/synth_rig.py`) SpeedNet is 25–35 % off,
+because it learned real phone vibration. So each run takes a real IO-VNBD stretch and keeps the phone's
+accelerometer and gyroscope as recorded, and the car's real speed. It takes the car's true turn rate out of
+the yaw gyro and puts the route's in (the centripetal term of the lateral accelerometer likewise). Checks:
+with GNSS on, the reference and the fixes agree to 0.2 m median. After a 1 km outage the no-AI stage is 4–6°
+off in heading; with the route's turns put in the wrong way it is 79–133° off (pinned by
+`tests/test_tunnel_scenario.py`).
+
+Runs are cruising stretches (mean 45–75 km/h, never below 30 km/h from 10 s before the entrance), after
+≥ 3 min of GNSS. The first version allowed 15 km/h and admitted a car pulling away from a stop at the
+entrance, which the PS example is not. **Control:** every run also goes on its own road (same stretch, same
+outage times, Coventry map).
+
+Results, `out/tunnel/summary.md`. 1 km, 110 runs on train drives with models that never saw them:
+
+| stage | exit error, median | under 100 m | drift, median | same stretches, own road |
+|---|--:|--:|--:|--:|
+| no AI | 137 m | 35 % | 13.7 % | 13.8 % |
+| + SpeedNet | 250 m | 21 % | 25.0 % | 25.2 % |
+| + fusion head | 167 m | 17 % | 16.7 % | 13.3 % |
+| + HMM map (shipped) | 163 m | 24 % | 16.3 % | 12.6 % |
+
+- On validation drives, 13 runs: shipped 184 m, no AI 88 m. On the underpass itself, 67 runs: shipped 11.7 %, no AI 9.0 %.
+- **Not met.** In steady traffic the held entrance speed beats the AI speed, the reverse of the general outages
+  (ablation: 24.2 → 17.7 %).
+- With the fusion head and the map, Hyderabad is ~3.5 points worse than the own-road control on train drives
+  (it agrees on val). No-AI and SpeedNet agree to 0.2 points, so the transplant itself is faithful. The gap is
+  the route (sharper junction turns in the 1 km span, a different map) and possibly the transplant disturbing
+  the head's IMU inputs.
+- Next: let the fusion head keep the entrance speed when the traffic before the outage was steady, checked
+  on the general IO-VNBD outages so it does not cost elsewhere.
+

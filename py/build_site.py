@@ -3,6 +3,8 @@ replayed through the live loop in the four ablation stages.
 
     PYTHONPATH=. python3 build_site.py [--data ~/OffMaps-data/IO-VNBD-sync]
 
+Also docs/data/hyderabad.json: the Mindspace Underpass scenario (tunnel_scenario.py).
+
 Writes docs/data/outages.json (per outage: the reference track, each stage's track, the
 shipped stage's filter sigma and road-snap flags, end drift per stage), docs/data/roads.json
 (the real OSM roads around those outages) and docs/data/ablation.json (out/ablation summaries).
@@ -31,10 +33,87 @@ def dm(a):
     return [int(round(x * 10)) for x in a]
 
 
+def hyderabad(data):
+    """docs/data/hyderabad.json: the Mindspace Underpass scenario (tunnel_scenario.py), val drives
+    with the shipped models, both carriageways, the 365 m underpass and the 1 km benchmark."""
+    import tunnel_scenario as TS
+    from osm_layers import read_roads_bin, HW_CODE
+    from data.iovnbd_sync import load_sync_dir
+    from model.train_real import split_drives
+    from model.fusion_head import load_head
+    from edge_engine import run
+    from ablation import factory, STAGES, LABEL
+    ways = TS.load_ways(); adj, xy = TS.graph(ways)
+    routes = {k: TS.Route(*TS.build_route(k, adj, xy)) for k in TS.UNDERPASS}
+    RP = np.vstack([r.P for r in routes.values()])
+    near = {(int(x // 400), int(y // 400)) for x, y in RP}
+    near = {(cx + i, cy + j) for cx, cy in near for i in (-2, -1, 0, 1, 2) for j in (-2, -1, 0, 1, 2)}
+    hyd = []
+    for la, lo, t, o, c in read_roads_bin(TS.HYD, with_class=True):
+        e, n = TS.en(la, lo)
+        if any((int(x // 400), int(y // 400)) in near for x, y in zip(e, n)):
+            hyd.append((la, lo, t, o, c))
+    head = load_head(os.path.join(HERE, "model", "fusion_head.pt"))
+    drives = split_drives(load_sync_dir(data, verbose=False))["val"]
+    cases = {"underpass": lambda r: (r.s_in, r.s_out),
+             "1km": lambda r: (r.s_in + (r.s_out - r.s_in) / 2 - TS.CORRIDOR_M / 2, r.s_in + (r.s_out - r.s_in) / 2 + TS.CORRIDOR_M / 2)}
+    outs = []
+    for d in drives:
+        for case, span in cases.items():
+            for direction, route in routes.items():
+                c0, c1 = span(route)
+                idx, cum = TS.windows(d, route, c0, c1)
+                for i0 in idx:
+                    imu, gn, tr = TS.transplant(d, route, cum, i0, c0)
+                    a = float(np.interp(c0, tr["s"], tr["t"])); b = float(np.interp(c1, tr["s"], tr["t"]))
+                    j = int(np.searchsorted(tr["t"], b)) - 1
+                    w0, w1 = np.searchsorted(tr["t"], [a - PRE, b + POST])
+                    step = 10 // HZ_OUT
+                    ix = np.arange(w0, min(w1, len(tr["t"])), step)
+                    rec = dict(drive=d.vehicle_id, case=case, direction=direction, dist=round(c1 - c0, 1),
+                               kmh=round(3.6 * (c1 - c0) / (b - a), 1), hz=HZ_OUT,
+                               denied=[int(np.searchsorted(ix, np.searchsorted(tr["t"], a))), int(np.searchsorted(ix, j))],
+                               truth=[dm(tr["e"][ix]), dm(tr["n"][ix])], stages={})
+                    for s in STAGES:
+                        o = run(factory(s, head, hyd)(), imu, gn, [(a, b)])
+                        la_, lo_ = TS.ll_engine(o, gn); e, n = TS.en(la_, lo_)
+                        err = float(np.hypot(e[j] - tr["e"][j], n[j] - tr["n"][j]))
+                        st = dict(e=dm(e[ix]), n=dm(n[ix]), err=round(err, 1), drift=round(100 * err / (c1 - c0), 2))
+                        if s == "map":
+                            st["sigma"] = [round(float(math.sqrt(max(o[q, 5] + o[q, 6], 0) / 2)), 1) for q in ix]
+                            snap = o[:, 8] > 0
+                            st["snap"] = [int(snap[q:q + step].any()) for q in ix]
+                        rec["stages"][s] = st
+                    outs.append(rec)
+        print(f"hyderabad: {d.vehicle_id}: {len(outs)} realizations so far", flush=True)
+    roads = []
+    for la, lo, t, o, c in hyd:
+        e, n = TS.en(la, lo)
+        roads.append([HW_CODE.get(c, 0), int(t)] + [v for x, y in zip(dm(e), dm(n)) for v in (x, y)])
+    tunnels = {k: dict(s_in=r.s_in, s_out=r.s_out) for k, r in routes.items()}
+    for case in cases:
+        R = [o for o in outs if o["case"] == case]
+        print(f"hyderabad {case}: {len(R)} realizations; median drift " +
+              "  ".join(f"{s} {np.median([o['stages'][s]['drift'] for o in R]):.1f}%" for s in STAGES))
+    meta = dict(stages=list(STAGES), labels={s: LABEL[s] for s in STAGES}, tunnels=tunnels,
+                frame=dict(lat0=TS.LAT0, lon0=TS.LON0),
+                source="Real phone data from IO-VNBD validation drives, transplanted onto OSM routes through "
+                       "the Mindspace Underpass (py/tunnel_scenario.py); roads (c) OpenStreetMap contributors, ODbL")
+    p = os.path.join(DOCS, "hyderabad.json")
+    with open(p, "w") as f:
+        json.dump(dict(meta=meta, outages=outs, roads=roads), f, separators=(",", ":"))
+    print(f"-> {os.path.relpath(p)} ({os.path.getsize(p) / 1e6:.2f} MB)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--data", default=os.environ.get("OFFMAPS_IOVNBD", os.path.expanduser("~/OffMaps-data/IO-VNBD-sync")))
+    ap.add_argument("--only", choices=["iovnbd", "hyderabad"], help="build one scenario's data only")
     a = ap.parse_args()
+    if a.only != "iovnbd":
+        hyderabad(a.data)
+        if a.only == "hyderabad":
+            return
     from osm_layers import read_roads_bin, HW_CODE
     from data.iovnbd_sync import load_sync_dir
     from model.train_real import split_drives

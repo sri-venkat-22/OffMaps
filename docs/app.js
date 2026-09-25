@@ -17,7 +17,21 @@ const ROAD_STYLE = [
   { name: "motorway", codes: [1, 2], fill: "--r-motorway", w: 6.4, casing: 1.6 },
 ];
 
-const st = { meta: null, outages: [], roads: {}, abl: null, dur: 60, list: [], pos: 0, cur: null,
+// two scenarios: real IO-VNBD outages (Coventry), and the Mindspace Underpass (Hyderabad), real
+// phone data transplanted onto an OSM route through it (py/tunnel_scenario.py)
+const SCEN = {
+  iovnbd: { file: "data/outages.json", roads: "data/roads.json", field: "dur", first: 60,
+            tabs: [[30, "30 s outage"], [60, "60 s outage"], [120, "120 s outage"]], note: "" },
+  hyd: { file: "data/hyderabad.json", field: "case", first: "1km",
+         tabs: [["underpass", "The 360 m underpass"], ["1km", "1 km, the PS benchmark"]],
+         note: "Hyderabad has no 1 km road tunnel; the Mindspace Underpass in HITEC City is the longest in the map. "
+             + "These runs use real phone sensor recordings (validation drives, the phone's own vibration, bias and "
+             + "noise, the car's real speed) moved onto a real route through the underpass: the car's own turns are "
+             + "taken out of the gyro and the route's put in. Over 1 km the shipped app ends a median 184 m off in these "
+             + "13 runs (163 m across 110 runs on train drives), so the PS's 100 m is met in about a quarter of runs. In "
+             + "steady traffic, holding the speed from the entrance does better (88 m here, 137 m on train drives)." },
+};
+const st = { scen: "iovnbd", data: {}, meta: null, outages: [], roads: {}, abl: null, tab: 60, list: [], pos: 0, cur: null,
              k: 0, t: 0, playing: false, speed: 4, hidden: new Set(), view: null, last: 0 };
 
 function el(tag, attrs = {}, parent) {
@@ -30,12 +44,26 @@ const css = (v) => `var(${v})`;
 const fmtTime = (s) => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const driveName = (id) => (id.match(/\/(S\d\w*)\//) || [, id])[1];
 
+const getJSON = (p) => fetch(p).then((x) => { if (!x.ok) throw new Error(`${p}: ${x.status}`); return x.json(); });
+
+async function loadScenario(key) {
+  if (st.data[key]) return st.data[key];
+  const S = SCEN[key];
+  const o = await getJSON(S.file);
+  const r = S.roads ? await getJSON(S.roads) : { hyd: o.roads };
+  const roads = {};
+  for (const [id, pieces] of Object.entries(r)) roads[id] = parseRoads(pieces);
+  st.data[key] = { meta: o.meta, outages: o.outages, roads };
+  return st.data[key];
+}
+
 async function load() {
-  const [o, r, a] = await Promise.all(["data/outages.json", "data/roads.json", "data/ablation.json"]
-    .map((p) => fetch(p).then((x) => { if (!x.ok) throw new Error(`${p}: ${x.status}`); return x.json(); })));
-  st.meta = o.meta; st.outages = o.outages; st.abl = a;
-  for (const [drive, pieces] of Object.entries(r)) {
-    st.roads[drive] = pieces.map((p) => {
+  st.abl = await getJSON("data/ablation.json");
+  await loadScenario("iovnbd");
+}
+
+function parseRoads(pieces) {
+  return pieces.map((p) => {
       const xy = new Float32Array(p.length - 2);
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let i = 2; i < p.length; i += 2) {
@@ -43,16 +71,33 @@ async function load() {
         xy[i - 2] = x; xy[i - 1] = y;
         x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       }
-      return { c: p[0], xy, box: [x0, y0, x1, y1] };
+      return { c: p[0], tun: p[1], xy, box: [x0, y0, x1, y1] };
     });
+}
+
+async function selectScenario(key) {
+  play(false);
+  document.querySelectorAll(".where button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.scen === key)));
+  const D = await loadScenario(key);
+  st.scen = key; st.meta = D.meta; st.outages = D.outages; st.roads = D.roads;
+  const S = SCEN[key], seg = document.querySelector(".seg");
+  seg.replaceChildren();
+  for (const [v, label] of S.tabs) {
+    const b = document.createElement("button");
+    b.setAttribute("role", "tab"); b.dataset.tab = String(v); b.textContent = label;
+    b.addEventListener("click", () => selectTab(v));
+    seg.appendChild(b);
   }
+  $("scennote").textContent = S.note; $("scennote").hidden = !S.note;
+  selectTab(S.first);
 }
 
 // ---------- outage selection ----------
-function selectDuration(d) {
-  st.dur = d;
-  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.dur === d)));
-  st.list = st.outages.filter((o) => o.dur === d).sort((a, b) => a.stages.map.drift - b.stages.map.drift);
+function selectTab(v) {
+  st.tab = v;
+  const field = SCEN[st.scen].field;
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === String(v))));
+  st.list = st.outages.filter((o) => o[field] === v).sort((a, b) => a.stages.map.drift - b.stages.map.drift);
   choose(Math.floor((st.list.length - 1) / 2));
 }
 
@@ -61,8 +106,11 @@ function choose(pos) {
   prepare(st.list[st.pos]);
   const o = st.cur, n = st.list.length, med = Math.floor((n - 1) / 2);
   const tag = st.pos === med ? " (the median one)" : st.pos === 0 ? " (the best one)" : st.pos === n - 1 ? " (the worst one)" : "";
-  $("which").textContent = `Outage ${st.pos + 1} of ${n}${tag}, ranked by the shipped app's drift · drive ${driveName(o.drive)} · `
-    + `${Math.round(o.dist)} m driven without GNSS · ${fmtTime(o.t0)} into the drive`;
+  $("which").textContent = st.scen === "hyd"
+    ? `Run ${st.pos + 1} of ${n}${tag}, ranked by the shipped app's drift · ${o.direction} carriageway · `
+      + `${Math.round(o.dist)} m without GNSS at ${Math.round(o.kmh)} km/h · phone data from drive ${driveName(o.drive)}`
+    : `Outage ${st.pos + 1} of ${n}${tag}, ranked by the shipped app's drift · drive ${driveName(o.drive)} · `
+      + `${Math.round(o.dist)} m driven without GNSS · ${fmtTime(o.t0)} into the drive`;
   st.t = 0; st.k = 0;
   $("scrub").max = o.N - 1; $("scrub").value = 0;
   const band = $("deniedband");
@@ -109,19 +157,24 @@ function layout() {
 
 function drawRoads() {
   const g = $("roads"); g.replaceChildren();
-  const v = st.view, pieces = st.roads[st.cur.drive] || [];
+  const v = st.view, pieces = st.roads[st.scen === "hyd" ? "hyd" : st.cur.drive] || [];
   const inView = pieces.filter((p) => p.box[2] >= v.x && p.box[0] <= v.x + v.w && p.box[3] >= v.y && p.box[1] <= v.y + v.h);
-  const paths = ROAD_STYLE.map((s) => ({ s, d: [] }));
+  const paths = ROAD_STYLE.map((s) => ({ s, d: [], t: [] }));
   for (const p of inView) {
     const k = ROAD_STYLE.findIndex((s) => s.codes.includes(p.c));
     let d = `M${p.xy[0].toFixed(1)} ${p.xy[1].toFixed(1)}`;
     for (let i = 2; i < p.xy.length; i += 2) d += `L${p.xy[i].toFixed(1)} ${p.xy[i + 1].toFixed(1)}`;
-    paths[k < 0 ? 1 : k].d.push(d);
+    paths[k < 0 ? 1 : k][p.tun ? "t" : "d"].push(d);
   }
   for (const { s, d } of paths) if (d.length && s.casing)
     el("path", { d: d.join(""), class: "rd", stroke: css("--r-casing"), "stroke-width": s.w + s.casing }, g);
   for (const { s, d } of paths) if (d.length)
     el("path", { d: d.join(""), class: "rd", stroke: css(s.fill), "stroke-width": s.w }, g);
+  // tunnels, the Ordnance Survey way: dashed casing, pale fill, drawn over the roads they pass under
+  for (const { s, t } of paths) if (t.length) {
+    el("path", { d: t.join(""), class: "rd", stroke: css("--ink"), "stroke-width": s.w + 3, "stroke-dasharray": "6 4", "stroke-opacity": 0.55 }, g);
+    el("path", { d: t.join(""), class: "rd", stroke: css("--paper-2"), "stroke-width": s.w }, g);
+  }
 }
 
 const pathOf = (P, a, b) => P.slice(a, b + 1).map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join("");
@@ -176,7 +229,7 @@ function draw() {
   const hz = o.hz;
   if (k < o.d0) { $("clocklabel").textContent = "GNSS lost in"; $("clock").textContent = fmtTime((o.d0 - k) / hz); $("clocksub").textContent = "on GNSS: every estimate is corrected each second"; }
   else if (out) { $("clocklabel").textContent = "Without GNSS"; $("clock").textContent = fmtTime((k - o.d0) / hz); $("clocksub").textContent = `${Math.round(o.cum[k])} m driven blind`; }
-  else { $("clocklabel").textContent = "GNSS back after"; $("clock").textContent = fmtTime(o.dur); $("clocksub").textContent = `${Math.round(o.dist)} m driven blind`; }
+  else { $("clocklabel").textContent = "GNSS back after"; $("clock").textContent = fmtTime((o.d1 - o.d0) / hz); $("clocksub").textContent = `${Math.round(o.dist)} m driven blind`; }
 
   // legend values
   for (const s of st.meta.stages) {
@@ -189,7 +242,10 @@ function draw() {
       const err = Math.hypot(g.P[k][0] - o.T[k][0], g.P[k][1] - o.T[k][1]);
       pct = o.cum[k] > 40 ? (100 * err) / o.cum[k] : 0;
       txt = o.cum[k] > 40 ? `${pct.toFixed(1)} %` : `${err.toFixed(0)} m`;
-    } else { pct = g.drift; txt = `${g.drift.toFixed(1)} %`; }
+    } else {
+      pct = g.drift;
+      txt = st.tab === "1km" ? `${Math.round(g.err)} m` : `${g.drift.toFixed(1)} %`;
+    }
     row.querySelector(".val").textContent = txt;
     row.querySelector(".bar i").style.width = `${Math.min(100, (pct / 40) * 100)}%`;
   }
@@ -262,7 +318,8 @@ function buildBars() {
 
 // ---------- wiring ----------
 function wire() {
-  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => selectDuration(+b.dataset.dur)));
+  document.querySelectorAll(".where button").forEach((b) => b.addEventListener("click", () => selectScenario(b.dataset.scen)
+    .catch((e) => { $("which").textContent = `Could not load that scenario (${e.message}).`; })));
   document.querySelectorAll(".walk button").forEach((b) => b.addEventListener("click", () => {
     const n = st.list.length, j = b.dataset.jump;
     choose(j === "first" ? 0 : j === "last" ? n - 1 : j === "median" ? Math.floor((n - 1) / 2) : st.pos + (j === "next" ? 1 : -1));
@@ -276,5 +333,5 @@ function wire() {
   new ResizeObserver(() => { if (st.cur) { layout(); draw(); } }).observe($("map"));
 }
 
-load().then(() => { buildLegend(); buildBars(); wire(); selectDuration(60); })
+load().then(async () => { st.meta = st.data.iovnbd.meta; buildLegend(); buildBars(); wire(); await selectScenario("iovnbd"); })
   .catch((e) => { $("which").textContent = `Could not load the replay data (${e.message}). Serve docs/ over HTTP, e.g. python3 -m http.server -d docs.`; });
