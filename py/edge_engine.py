@@ -97,7 +97,7 @@ class EdgeEngine:
     def __init__(self, profile=P.SHIPPED, head="profile", roads=None, map_mode="greedy",
                  vehicle="car", yaw_mode=None, declination_deg=0.0, mount_forward=None,
                  use_mag=True, speed_net=None, map_opts=None, zupt=None,
-                 head_handover=False):
+                 head_handover=False, dr_speed=True):
         self.prof = P.load_profile(profile) if isinstance(profile, str) else profile
         self.cfg = self.prof["eskf"]
         from core_bridge import LIVE_DEFAULT
@@ -112,6 +112,8 @@ class EdgeEngine:
                                               live["fusion_head"].replace(".json", ".pt")))
         self.head = head                       # learned fusion head (model/fusion_head.py) or None
         self.head_handover = head_handover     # hold the entry speed for handover_s before the head takes over
+        self.dr_speed = dr_speed               # False: no speed updates while dead-reckoning (entry speed held;
+                                               # the no-AI "physics" stage of ablation.py)
         self.roads_ll = roads                  # [(lat[], lon[], tunnel, oneway[, highway])] or None
         self.map_mode = map_mode               # "greedy" | "viterbi" | "hmm" | "off"
         self.vehicle = vehicle
@@ -251,7 +253,7 @@ class EdgeEngine:
             self.still_s = self.still_s + 1 if still else 0
             if dr and self.zupt == "strict" and self.still_s >= STOP_S:
                 f.update_zupt(float(np.mean(g1[:, 2])))
-            elif dr:
+            elif dr and self.dr_speed:
                 if self.head is not None:
                     v, s = self.head.step(self.head_state, self._head_features())   # always: GRU state
                     if not (self.head_handover and self.dr_steps <= self.handover):

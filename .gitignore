@@ -29,3 +29,6 @@ map/coventry/*.osm.pbf
 map/coventry/*.geojsonseq
 map/coventry/build.log
 map/coventry/tiles.mbtiles
+
+# demo run outputs (py/demo.py); the committed plot is out/demo/demo_outage.png
+out/demo/*.csv

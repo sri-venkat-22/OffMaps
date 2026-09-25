@@ -92,3 +92,18 @@ def test_10hz_reproduces_the_validated_live_loop_on_real_val():
                 A.append(100 * ea[i1] / dist); B.append(100 * eb[i1] / dist)
     assert len(A) >= 10
     assert abs(np.median(A) - np.median(B)) < 4.0, (np.median(A), np.median(B))
+
+
+def test_no_ai_stage_holds_the_entry_speed(fog200):
+    """ablation.py's no-AI stage (dr_speed=False): while dead-reckoning nothing updates the
+    speed, so the filter coasts on the speed it had at outage entry; the default loop
+    does update it (SpeedNet / head). GNSS still recovers both."""
+    rig, root = fog200
+    imu, gn = read_inputs(os.path.join(root, "imu.csv"), os.path.join(root, "gnss.csv"))
+    held = run(EdgeEngine(head=None, dr_speed=False), imu, gn, [(120.0, 150.0)])
+    live = run(EdgeEngine(head=None), imu, gn, [(120.0, 150.0)])
+    i0, i1 = 121 * 200, 149 * 200
+    assert np.ptp(held[i0:i1, 4]) < 1e-9                              # speed frozen in the outage
+    assert np.ptp(live[i0:i1, 4]) > 1e-3                              # the default loop moves it
+    err = np.hypot(held[:, 1] - rig["e"], held[:, 2] - rig["n"])
+    assert err[170 * 200] < 10.0                                      # GNSS pulls it back

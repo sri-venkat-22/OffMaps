@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 EXT=$([ "$(uname)" = "Darwin" ] && echo dylib || echo so)
 SRC="core/eskf.cpp core/eskf3d.cpp core/speed_cal.cpp core/align.cpp core/gnss_quality.cpp core/map_match.cpp core/vib.cpp"
-clang++ -std=c++17 -O2 -fPIC -shared $SRC -o core/libidr.$EXT
-clang++ -std=c++17 -O2 $SRC tools/replay.cpp -o tools/replay
+CXX="${CXX:-$(command -v clang++ || command -v g++)}"
+"$CXX" -std=c++17 -O2 -fPIC -shared $SRC -o core/libidr.$EXT
+"$CXX" -std=c++17 -O2 $SRC tools/replay.cpp -o tools/replay
 echo "built core/libidr.$EXT and tools/replay"
