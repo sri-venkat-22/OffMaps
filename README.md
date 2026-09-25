@@ -22,6 +22,7 @@ returns. Everything runs offline, on the phone, with no extra hardware.
 | **Runs on** | a native Android app (Kotlin + a C++17 core over JNI), live on a Redmi Note 9 Pro at 400 Hz; and an edge-engine CLI for external IMUs at any rate |
 | **Validated on** | real drives from [IO-VNBD](https://github.com/onyekpeu/IO-VNBD): ~14 h, phone IMU scored against the vehicle's survey GNSS, split by drive |
 | **Where it stands** | Median drift, % of distance, on train drives run with models that never saw them: **24.2 %** with no AI, **13.6 %** with SpeedNet + the fusion head, **11.7 %** with road matching as the app now ships. **16.4 %** on the held-out test drives (scored before road matching shipped). The PS target of **< 10 % is not reached yet** (§Results). |
+| **Watch it** | **[sri-venkat-22.github.io/OffMaps](https://sri-venkat-22.github.io/OffMaps/)**: replay any validation-drive outage on the real roads, all four stages side by side |
 | **Try it** | `./run.sh` builds, tests and runs the demo (§Quick start) |
 
 ## Results
@@ -203,6 +204,7 @@ see `android/README.md`.
 | `map/` | offline maps: Hyderabad (app) and the IO-VNBD area (evaluation), both from OSM |
 | `tools/` | map build pipeline (`build_map.sh`, `osm_layers.py`), `replay` |
 | `out/` | committed results, plots and reports |
+| `docs/` | the demo page (GitHub Pages); its data comes from `py/build_site.py` |
 
 Write-ups:
 - `py/README_PHASE0.md`: benchmark first;
