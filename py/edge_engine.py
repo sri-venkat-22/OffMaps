@@ -53,7 +53,7 @@ NN_EVERY = int(HZ)             # 10 steps = 1 s
 TAU_FAST = 0.5                 # gravity EMA for the "fast" yaw projection (phone_log)
 TAU_MAG = 1.0                  # magnetometer EMA
 STOP_V, STOP_S, STOP_GYRO = 0.3, 3, 0.03   # strict stop: NN speed (m/s), consecutive s, max |gyro| (rad/s)
-# map_mode="hmm" preset (Phase 9, README_PHASE9): HMM road matcher without service roads; a road
+# map_mode="hmm" preset (Phase 9, py/phase9_map_eval.py + out/phase9/): HMM road matcher without service roads; a road
 # update only on a confident match, while the filter sigma <= 25 m, if it passes a chi2 innovation
 # gate, and it never moves speed or gyro bias. Train LODO: mean median drift 13.6 -> 11.7 %.
 MAP_HMM = dict(exclude=("service",), sigma_max=25.0, keep=3, heading=True, chi2=6.63)
@@ -527,7 +527,8 @@ def main(argv=None):
     ap.add_argument("--profile", default=P.SHIPPED)
     ap.add_argument("--head", help="learned fusion head (.pt from model/fusion_head.py)")
     ap.add_argument("--roads", help="roads.bin (tools/osm_layers.py) for road snapping")
-    ap.add_argument("--map-mode", choices=["greedy", "viterbi", "hmm", "off"], default="greedy")
+    ap.add_argument("--map-mode", choices=["greedy", "viterbi", "hmm", "off"],
+                    help="road matcher with --roads (default: the profile's, hmm for nn_real)")
     ap.add_argument("--vehicle", choices=["car", "two_wheeler"], default="car")
     ap.add_argument("--yaw-mode", choices=["fast", "slow", "coord"])
     ap.add_argument("--declination-deg", type=float, default=0.0)
@@ -552,6 +553,10 @@ def main(argv=None):
     if a.head:
         from model.fusion_head import load_head
         head = load_head(a.head)
+    if a.map_mode is None:                     # the phone's choice: profile live block
+        from core_bridge import LIVE_DEFAULT
+        live = {**LIVE_DEFAULT, **(P.load_profile(a.profile).get("live") or {})}
+        a.map_mode = "hmm" if live["mm_hmm"] else "viterbi" if live["mm_viterbi"] else "greedy"
     eng = EdgeEngine(a.profile, head=head, roads=roads, map_mode=a.map_mode, vehicle=a.vehicle,
                      yaw_mode=a.yaw_mode, declination_deg=a.declination_deg, use_mag=not a.no_mag)
     outs = [tuple(float(x) for x in s.split(":")) for s in a.outage]

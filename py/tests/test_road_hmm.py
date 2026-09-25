@@ -105,7 +105,7 @@ ROADS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ma
 
 @pytest.mark.skipif(not (os.path.isdir(DATA) and os.path.exists(ROADS)), reason="IO-VNBD data / Coventry roads not found")
 def test_hmm_preset_on_real_roads_is_not_worse_than_no_map_on_val():
-    """Phase 9 gate, real val drives on the real OSM network (README_PHASE9): the
+    """Phase 9 gate, real val drives on the real OSM network (py/phase9_map_eval.py): the
     MAP_HMM preset must not raise the median drift, and must help more outages than
     it hurts. (Val is small: on it the gain is ~0.5 point; train LODO shows -1.9.)"""
     pytest.importorskip("onnxruntime")

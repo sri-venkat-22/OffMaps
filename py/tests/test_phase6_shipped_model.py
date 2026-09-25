@@ -16,6 +16,8 @@ phone). Pinned here:
 """
 import hashlib, json, os, re
 import pytest
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'tools'))
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("onnxruntime")
@@ -76,5 +78,31 @@ def test_mirror_constants_match_fusion_engine():
     assert "if (trust >= TRUST_APPLIED) stepsSinceGnss = 0" in src
     assert "if (st[3] < SHOCK_MIN_SPEED) return" in src          # potholes only while driving
     assert 'optDouble("handover_s", 0.0)' in _kt("SpeedProfile.kt")
-    assert "it.setMapKeepSpeed(p.mmKeepSpeed)" in src                 # map settings from the profile
+    # map settings from the profile; the HMM road update keeps speed AND gyro bias (mask 3)
+    assert "it.setMapKeepSpeed(if (p.mmHmm) 3 else if (p.mmKeepSpeed) 1 else 0)" in src
     assert "else p.mmCrossSigma" in src and "else p.mmHeadingSigmaDeg" in src
+    assert 'optBoolean("mm_hmm", p.mmHmm)' in _kt("SpeedProfile.kt")
+
+
+def test_hmm_constants_match_edge_engine_and_road_hmm():
+    """Phase 9: FusionEngine's HMM gates == edge_engine.MAP_HMM + its option defaults, and
+    RoadHmm.kt's matcher constants == road_hmm.py's (behaviour: test_kotlin_ports.py)."""
+    import inspect
+    from edge_engine import MAP_HMM, EdgeEngine
+    import road_hmm as RH
+    src, hm = _kt("FusionEngine.kt"), _kt("RoadHmm.kt")
+    num = lambda text, name: float(re.search(rf"{name} = (?:Math.toRadians\()?([\d.]+)", text).group(1))
+    eng_src = inspect.getsource(EdgeEngine.__init__)
+    opt = lambda k: float(re.search(rf"{k}=([\d.]+)", eng_src).group(1))
+    assert MAP_HMM["keep"] == 3 and MAP_HMM["exclude"] == ("service",) and MAP_HMM["heading"]
+    assert num(src, "HMM_CHI2") == MAP_HMM["chi2"] and num(src, "HMM_SIGMA_MAX") == MAP_HMM["sigma_max"]
+    assert num(src, "HMM_CONF") == opt("conf") and num(src, "HMM_CROSS_SCALE") == opt("cross_scale")
+    assert num(src, "HMM_HEADING_SIGMA") == opt("heading_sigma_deg")
+    assert "m.segLen >= 25.0 && m.endDist >= 8.0" in src
+    sig = inspect.signature(RH.HMMMatcher.__init__).parameters
+    for kt, py in (("SIGMA_MIN", "sigma_min"), ("BETA", "beta"), ("RADIUS", "radius"),
+                   ("RADIUS_MAX", "radius_max"), ("MAX_CANDS", "max_cands")):
+        assert num(hm, kt) == sig[py].default, kt
+    assert num(hm, "HEADING_SIGMA") == sig["heading_sigma_deg"].default
+    assert num(hm, "CELL_M") == RH.CELL_M
+    assert int(num(hm, "HW_SERVICE")) == __import__("osm_layers").HW_CODE["service"]

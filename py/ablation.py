@@ -11,8 +11,9 @@ drift % of distance; identical windows in every stage, so stages pair outage by 
 
   physics    gyro heading + the speed at outage entry, held (no AI while dead-reckoning)
   speednet   + SpeedNet pseudo-odometer, Doppler self-calibrated (hold 10 s, then SpeedNet)
-  head       + learned fusion head: speed AND its sigma from a GRU (the shipped app)
-  map        + HMM road matching on the real OSM network (edge_engine.MAP_HMM, Phase 9)
+  head       + learned fusion head: speed AND its sigma from a GRU
+  map        + HMM road matching on the real OSM network (edge_engine.MAP_HMM, Phase 9): the
+             shipped app (road snapping on by default since the phone port)
 
 Sets: `val` (2 drives, ~1 h) and `lodo` (train, leave-one-drive-out: each drive runs with a
 SpeedNet and head that never saw it, ~9.5 h). The test split is not used here.
@@ -30,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROADS = os.path.join(HERE, "..", "map", "coventry", "roads.bin")
 STAGES = ("physics", "speednet", "head", "map")
 LABEL = {"physics": "Gyro heading + entry speed (no AI)", "speednet": "+ SpeedNet (AI speed)",
-         "head": "+ learned fusion head (shipped)", "map": "+ HMM road matching"}
+         "head": "+ learned fusion head", "map": "+ HMM road matching (shipped)"}
 
 
 def factory(stage, head, roads, net=None):

@@ -36,6 +36,7 @@ data class SpeedProfile(
     val mmGateDeg: Double = 45.0,          // road bearing must agree with heading within this
     val mapDefaultOn: Boolean = true,      // road snapping toggle's initial state
     val mmViterbi: Boolean = false,        // live fixed-lag Viterbi picks the road (RoadMatcher.decode)
+    val mmHmm: Boolean = false,            // HMM road matcher (RoadHmm, Phase 9); takes precedence over the two above
     val zuptStrict: Boolean = false,       // strict stop detector -> ZUPT while dead-reckoning
     val fusionHead: String? = null,        // learned fusion head asset (FusionHeadAsset) or none
 ) {
@@ -73,6 +74,7 @@ data class SpeedProfile(
                     mmGateDeg = l.optDouble("mm_gate_deg", p.mmGateDeg),
                     mapDefaultOn = l.optBoolean("map_default_on", p.mapDefaultOn),
                     mmViterbi = l.optBoolean("mm_viterbi", p.mmViterbi),
+                    mmHmm = l.optBoolean("mm_hmm", p.mmHmm),
                     zuptStrict = l.optBoolean("zupt_strict", p.zuptStrict),
                     fusionHead = if (l.isNull("fusion_head")) null else l.optString("fusion_head"),
                 )

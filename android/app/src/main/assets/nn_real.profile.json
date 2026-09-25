@@ -25,8 +25,9 @@
     "mm_heading": false,
     "mm_unique": true,
     "mm_gate_deg": 15.0,
-    "map_default_on": false,
+    "map_default_on": true,
     "mm_viterbi": false,
+    "mm_hmm": true,
     "zupt_strict": false,
     "fusion_head": "fusion_head.json"
   }

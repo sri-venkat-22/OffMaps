@@ -22,10 +22,10 @@ import kotlin.math.floor
  */
 class RoadNetwork private constructor(
     private val start: IntArray,     // point offset of each way; start[nWays] == nPts
-    private val flags: ByteArray,    // bit0 tunnel, bit1 oneway
+    private val flags: ByteArray,    // bit0 tunnel, bit1 oneway, bits2-5 highway class (osm_layers.HW_CODE)
     private val lat7: IntArray,      // degrees * 1e7
     private val lon7: IntArray,
-) {
+) : RoadSource {
     val nWays: Int get() = flags.size
     private val cells = HashMap<Long, IntArray>()
     private val stamp = IntArray(flags.size)   // dedupe marker for waysNear
@@ -47,16 +47,17 @@ class RoadNetwork private constructor(
         for ((k, v) in tmp) cells[k] = v.toArray()
     }
 
-    fun tunnel(w: Int) = flags[w].toInt() and 1
-    fun oneway(w: Int) = (flags[w].toInt() shr 1) and 1
-    fun size(w: Int) = start[w + 1] - start[w]
+    override fun tunnel(w: Int) = flags[w].toInt() and 1
+    override fun oneway(w: Int) = (flags[w].toInt() shr 1) and 1
+    override fun hwCode(w: Int) = (flags[w].toInt() shr 2) and 15   // 0 = unknown (roads.bin built before Phase 9)
+    override fun size(w: Int) = start[w + 1] - start[w]
     fun lat(w: Int, i: Int) = lat7[start[w] + i] / SCALE
     fun lon(w: Int, i: Int) = lon7[start[w] + i] / SCALE
-    fun lat7(w: Int, i: Int) = lat7[start[w] + i]      // raw 1e-7 deg: exact vertex identity (junctions)
-    fun lon7(w: Int, i: Int) = lon7[start[w] + i]
+    override fun lat7(w: Int, i: Int) = lat7[start[w] + i]      // raw 1e-7 deg: exact vertex identity (junctions)
+    override fun lon7(w: Int, i: Int) = lon7[start[w] + i]
 
     /** Ids of every way whose grid cells touch the box of +-radiusM around (lat, lon). */
-    fun waysNear(lat: Double, lon: Double, radiusM: Double): IntArray {
+    override fun waysNear(lat: Double, lon: Double, radiusM: Double): IntArray {
         val dLat = radiusM / M_PER_DEG
         val dLon = radiusM / (M_PER_DEG * cos(lat * PI / 180.0).coerceAtLeast(0.1))
         val out = IntList()

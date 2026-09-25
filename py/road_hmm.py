@@ -32,9 +32,11 @@ class RoadGraph:
 
     def __init__(self, ways, lat0, lon0, exclude=()):
         k = math.pi / 180 * R_EARTH; cl = math.cos(math.radians(lat0))
-        keep = [w for w in ways if (w[4] if len(w) > 4 else None) not in exclude]
+        kid = [i for i, w in enumerate(ways) if (w[4] if len(w) > 4 else None) not in exclude]
+        keep = [ways[i] for i in kid]
         la = np.concatenate([w[0] for w in keep]); lo = np.concatenate([w[1] for w in keep])
         wid = np.repeat(np.arange(len(keep)), [len(w[0]) for w in keep])
+        vtx = np.concatenate([np.arange(len(w[0])) for w in keep])
         key = np.stack([np.round(la * 1e7), np.round(lo * 1e7)], 1).astype(np.int64)
         _, node = np.unique(key, axis=0, return_inverse=True)
         node = node.ravel()
@@ -47,6 +49,9 @@ class RoadGraph:
         self.len = np.hypot(self.d[:, 0], self.d[:, 1])
         self.brg = np.arctan2(self.d[:, 0], self.d[:, 1])       # compass bearing, geometry order
         w = wid[s]
+        # stable identity of a segment: (way index in `ways`, first vertex) -- RoadHmm.kt's key.
+        # Segment ids are in this order, so ties sorted by id break the same way on the phone.
+        self.way, self.vtx = np.asarray(kid)[w], vtx[s]
         self.oneway = np.array([keep[i][3] for i in w], bool)
         self.tunnel = np.array([keep[i][2] for i in w], bool)
         cls = [keep[i][4] if len(keep[i]) > 4 else None for i in w]
@@ -110,9 +115,12 @@ class RoadGraph:
 
 class HMMMatcher:
     def __init__(self, graph, sigma_min=4.0, beta=8.0, radius=45.0, heading_sigma_deg=25.0,
-                 max_cands=10):
+                 max_cands=10, radius_max=150.0):
         self.g = graph
         self.sigma_min, self.beta, self.radius = sigma_min, beta, radius
+        # candidates within max(radius, 3 sigma), capped: late in an outage sigma reaches
+        # hundreds of metres, and the phone (RoadHmm.kt) holds a 1 km window of roads
+        self.radius_max = radius_max
         self.hs = math.radians(heading_sigma_deg)
         self.max_cands = max_cands
         self.reset()
@@ -129,7 +137,7 @@ class HMMMatcher:
         if moving:
             rev = ~self.g.oneway[ids] & (np.abs(_wrap_arr(psi - head)) > math.pi / 2)
             dirn[rev] = -1; head[rev] = _wrap_arr(head[rev] + math.pi)
-        o = np.argsort(dist)[: self.max_cands]
+        o = np.lexsort((ids, dist))[: self.max_cands]      # by distance, ties by segment id (deterministic)
         return dict(seg=ids[o], dirn=dirn[o], foot=foot[o], dist=dist[o], t=t[o], head=head[o])
 
     def _route(self, pv, i, cu, j, cache):
@@ -152,7 +160,7 @@ class HMMMatcher:
         """One 1 Hz step at the filter's (e, n, psi). Call add_travel() in between."""
         moving = speed > 2.0
         sig = max(self.sigma_min, pos_sigma)
-        cu = self._cands(np.asarray(xy, float), psi, moving, max(self.radius, 3 * sig))
+        cu = self._cands(np.asarray(xy, float), psi, moving, min(max(self.radius, 3 * sig), self.radius_max))
         if cu is None:
             self.reset(); return None
         em = -0.5 * (cu["dist"] / sig) ** 2
@@ -186,7 +194,7 @@ class HMMMatcher:
         # further than 5 m away, so it still counts against the match.
         df = np.hypot(*(cu["foot"] - cu["foot"][k]).T)
         same = (df < 5.0) & (np.abs(_wrap_arr(cu["head"] - cu["head"][k])) < math.radians(30))
-        self.last = dict(seg=s, foot=cu["foot"][k], bearing=float(cu["head"][k]), dist=float(cu["dist"][k]),
+        self.last = dict(seg=s, way=int(self.g.way[s]), vtx=int(self.g.vtx[s]), foot=cu["foot"][k], bearing=float(cu["head"][k]), dist=float(cu["dist"][k]),
                          conf=float(post[same].sum()), seg_conf=float(post[k]),
                          seg_len=float(L), end_dist=float(min(tk, 1 - tk) * L),
                          half_width=float(self.g.half_width[s]), tunnel=bool(self.g.tunnel[s]))

@@ -37,6 +37,11 @@ import kotlin.math.sqrt
  *                          Phase-5 `eskf_map` step verbatim (core_bridge.py::_run matcher
  *                          branch). Never while GNSS is healthy: a road centreline is not
  *                          your lane, so it only earns its place once GNSS is gone.
+ *                          With the profile's mm_hmm (Phase 9) the road comes from RoadHmm
+ *                          instead: it runs at 1 Hz whenever road snapping is on (so it is
+ *                          locked on when the outage starts), and a road update is applied
+ *                          only while dead-reckoning, on a confident match, while the filter
+ *                          sigma <= 25 m, if it passes a chi2 gate -- edge_engine.MAP_HMM.
  *
  * Why speed aids are dead-reckoning only: with GNSS healthy, Doppler (~0.1 m/s) owns
  * speed. Fusing a net that is metres/second off on real roads pulled the filter away
@@ -80,6 +85,13 @@ class FusionEngine(
     // strict stop detector (== edge_engine.STOP_*): SpeedNet < STOP_V for STOP_S s AND max |gyro| < STOP_GYRO
     private val STOP_V = 0.3; private val STOP_S = 3; private val STOP_GYRO = 0.03
     private val PRE_KEEP = 600                  // trusted (Doppler, NN) pairs kept for the fusion head's context
+    // HMM road matching (== edge_engine.MAP_HMM, py/phase9_map_eval.py): confident match, filter sigma
+    // gate, chi2 innovation gate; the road update moves neither speed nor gyro bias (keep mask 3)
+    private val HMM_CONF = 0.9
+    private val HMM_SIGMA_MAX = 25.0
+    private val HMM_CHI2 = 6.63                 // 1 dof, 99 %
+    private val HMM_CROSS_SCALE = 0.6           // cross-track sigma = this x road half-width (>= 1 m)
+    private val HMM_HEADING_SIGMA = Math.toRadians(6.0)
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -92,6 +104,9 @@ class FusionEngine(
     private var profile: SpeedProfile? = null
     private var enu = Enu()
     private var roadMatcher: RoadMatcher? = null
+    private var roadHmm: RoadHmm? = null
+    private var hmmSteps = 0
+    private var hmmSnapped = false              // the last 1 Hz HMM decision applied a road update
     @Volatile private var roads: RoadNetwork? = null
 
     // ---- 10 Hz decimated IMU ring buffer for the NN window ----
@@ -146,7 +161,7 @@ class FusionEngine(
     @Volatile private var vehicle = "car"          // "car" | "two_wheeler" (two-wheeler: lean-compensated yaw)
 
     @Volatile private var masked = false
-    // initial road-snap state from the profile (nn_real: off -- real-road check, README_PHASE8 8d)
+    // initial road-snap state from the profile (nn_real: on since the Phase 9 HMM matcher)
     @Volatile private var mapAid = try { SpeedProfile.fromAssets(context, profileName).mapDefaultOn } catch (e: Exception) { true }
     @Volatile private var running = false
 
@@ -169,7 +184,10 @@ class FusionEngine(
         if (running) return
         val p = SpeedProfile.fromAssets(context, profileName)
         profile = p
-        filter = Filter().also { it.setNoise(p.arw, p.brw, p.srw); it.setMapKeepSpeed(p.mmKeepSpeed) }
+        filter = Filter().also {
+            it.setNoise(p.arw, p.brw, p.srw)
+            it.setMapKeepSpeed(if (p.mmHmm) 3 else if (p.mmKeepSpeed) 1 else 0)   // HMM: keep speed + gyro bias
+        }
         speedCal = SpeedCal()
         align = Align()
         net = SpeedNet.fromAssets(context, p)
@@ -182,7 +200,7 @@ class FusionEngine(
     fun stop() {
         running = false
         filter?.close(); speedCal?.close(); align?.close(); net?.close(); roadMatcher?.close(); vib?.close()
-        filter = null; speedCal = null; align = null; net = null; roadMatcher = null; profile = null; vib = null
+        filter = null; speedCal = null; align = null; net = null; roadMatcher = null; roadHmm = null; profile = null; vib = null
     }
 
     private fun resetStreaming() {
@@ -196,6 +214,7 @@ class FusionEngine(
         enu = Enu()                                      // new session -> new origin at its first fix
         headState = null; pre.clear(); yawAlign.reset(); haveMag = false; stillS = 0; lastYaw = 0.0
         headingSeed = "none"
+        roadHmm = null; hmmSteps = 0; hmmSnapped = false  // its ENU frame is the session's
     }
 
     private fun deadReckoning() = masked || stepsSinceGnss > GNSS_STALE_STEPS
@@ -208,11 +227,12 @@ class FusionEngine(
      * to the matched road and pull heading onto its bearing. The road never constrains
      * distance travelled -- that stays the speed model's job.
      */
-    private fun mapMatchUpdate(f: Filter) {
+    private fun mapMatchUpdate(f: Filter, dt: Double) {
         snapped = false
         if (!deadReckoning()) { vitHist.clear(); vitWay = -1 }
-        if (!mapAid || !deadReckoning()) return
         val p = profile ?: return
+        if (p.mmHmm) { hmmUpdate(f, dt); return }
+        if (!mapAid || !deadReckoning()) return
         val r = roads ?: return
         val rm = roadMatcher ?: RoadMatcher(r, enu, p.mmViterbi).also { roadMatcher = it }
         val st = f.state()
@@ -237,6 +257,35 @@ class FusionEngine(
             f.updateHeading(tgt, Math.toRadians(if (m.corridor) 1.0 else p.mmHeadingSigmaDeg))
         }
         snapped = true
+    }
+
+    /** Phase 9 road matching, the edge engine's _map_step_hmm: the HMM runs at 1 Hz while
+     *  road snapping is on, GNSS or not; its road is applied only while dead-reckoning. */
+    private fun hmmUpdate(f: Filter, dt: Double) {
+        if (!mapAid) { roadHmm?.reset(); hmmSnapped = false; return }
+        val r = roads ?: return
+        if (!enu.hasOrigin) return
+        val hmm = roadHmm ?: RoadHmm(r, enu).also { roadHmm = it }
+        val st = f.state()
+        hmm.addTravel(abs(st[3]) * dt)
+        // a decision holds for its second, so the published flag doesn't blink at 10 Hz
+        if (++hmmSteps % NN_EVERY_STEPS != 0) { snapped = hmmSnapped && deadReckoning(); return }
+        hmmSnapped = false
+        var cov = f.cov()
+        val ps = sqrt(maxOf(cov[0] + cov[1], 0.0) / 2)
+        val m = hmm.update(st[0], st[1], st[2], abs(st[3]), ps) ?: return
+        if (!deadReckoning() || m.conf < HMM_CONF || abs(st[3]) < 1.0 || ps > HMM_SIGMA_MAX) return
+        val nE = -cos(m.bearing); val nN = sin(m.bearing)            // left-normal (matches C++ cross sign)
+        val cross = (m.footE - st[0]) * nE + (m.footN - st[1]) * nN
+        val sc = maxOf(1.0, HMM_CROSS_SCALE * m.halfWidth)
+        if (cross * cross / (nE * nE * cov[0] + nN * nN * cov[1] + sc * sc) > HMM_CHI2) return   // wrong road
+        f.updateCrosstrack(nE, nN, cross, sc)
+        if (m.segLen >= 25.0 && m.endDist >= 8.0) {                  // not at a vertex / on a short piece
+            val dpsi = wrapPi(m.bearing - st[2]); cov = f.cov()
+            if (dpsi * dpsi / (cov[2] + HMM_HEADING_SIGMA * HMM_HEADING_SIGMA) <= HMM_CHI2)
+                f.updateHeading(m.bearing, HMM_HEADING_SIGMA)
+        }
+        snapped = true; hmmSnapped = true
     }
 
     private fun wrapPi(a: Double): Double {
@@ -341,7 +390,7 @@ class FusionEngine(
         }
 
         stepsSinceGnss++
-        mapMatchUpdate(f)                                 // no-op unless dead-reckoning with roads loaded
+        mapMatchUpdate(f, dtStep)                         // no-op unless roads are loaded (and, except HMM, dead-reckoning)
 
         steps++
         publish(newGnss = false)

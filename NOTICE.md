@@ -14,7 +14,7 @@ Files derived from OpenStreetMap data:
 
 - `map/hyderabad/tiles.mbtiles`, `map/hyderabad/roads.bin`
 - `map/coventry/roads.bin` (built by `tools/build_map.sh` from the Geofabrik
-  `west-midlands` + `warwickshire` extracts; README_PHASE8 8d)
+  `west-midlands` + `warwickshire` extracts)
 - `android/app/src/main/assets/map/tiles.mbtiles`, `android/app/src/main/assets/map/roads.bin`
 
 The Hyderabad files were built by `tools/build_map.sh` from the Geofabrik extract

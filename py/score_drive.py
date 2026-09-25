@@ -106,7 +106,7 @@ def main(argv=None):
     if a.roads:
         sys.path.insert(0, os.path.join(ROOT, "tools"))
         from osm_layers import read_roads_bin
-        roads = read_roads_bin(a.roads)
+        roads = read_roads_bin(a.roads, with_class=True)
     head = None
     if a.head and os.path.exists(a.head):
         from model.fusion_head import load_head
@@ -131,8 +131,10 @@ def main(argv=None):
     if head is not None:
         configs["+ fusion head"] = base(head=head)
     if roads is not None:
-        configs["+ road snapping (safe)"] = base(roads=roads, map_mode="greedy",
-                                                 map_opts=dict(heading=False, unique=True, gate_deg=15))
+        # the phone's matcher (Phase 9 HMM, profile live.mm_hmm), and the older greedy one for comparison
+        configs["+ road matching (HMM)"] = base(roads=roads, map_mode="hmm")
+        configs["+ road snapping (old greedy)"] = base(roads=roads, map_mode="greedy",
+                                                       map_opts=dict(heading=False, unique=True, gate_deg=15))
     drift = {}
     for nm, fac in configs.items():
         drift[nm] = {}

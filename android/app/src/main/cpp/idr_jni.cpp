@@ -76,8 +76,8 @@ Java_com_offmaps_nav_IdrNative_idrUpdateHeading(JNIEnv*, jobject, jlong h, jdoub
     idr_update_heading(H(idr_filter, h), bearing, sigma);
 }
 JNIEXPORT void JNICALL
-Java_com_offmaps_nav_IdrNative_idrSetMapKeepSpeed(JNIEnv*, jobject, jlong h, jboolean keep) {
-    idr_set_map_keep_speed(H(idr_filter, h), keep ? 1 : 0);
+Java_com_offmaps_nav_IdrNative_idrSetMapKeepSpeed(JNIEnv*, jobject, jlong h, jint keep) {
+    idr_set_map_keep_speed(H(idr_filter, h), keep);   // mask: 1 speed, 2 gyro bias (core/idr.h)
 }
 JNIEXPORT jdoubleArray JNICALL
 Java_com_offmaps_nav_IdrNative_idrGetState(JNIEnv* env, jobject, jlong h) {

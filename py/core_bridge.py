@@ -247,6 +247,7 @@ LIVE_DEFAULT = dict(
     mm_gate_deg=45.0,       # road bearing within this of the heading
     map_default_on=True,    # the app's road-snapping toggle starts on
     mm_viterbi=False,       # live fixed-lag Viterbi picks the road (road_window / RoadMatcher.decode)
+    mm_hmm=False,           # HMM road matcher (road_hmm / RoadHmm.kt, edge_engine.MAP_HMM; py/phase9_map_eval.py)
     zupt_strict=False,      # strict stop detector -> ZUPT while dead-reckoning
     fusion_head=None,       # learned fusion head asset (model/fusion_head.py) or None
 )
