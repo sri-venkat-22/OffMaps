@@ -205,8 +205,9 @@ function play(on) {
 }
 function tick(now) {
   if (!st.playing) return;
-  st.t += ((now - st.last) / 1000) * st.speed; st.last = now;
-  const k = Math.min(st.cur.N - 1, Math.floor(st.t * st.cur.hz));
+  // a frame's timestamp can precede the performance.now() taken when play started
+  st.t += (Math.max(0, now - st.last) / 1000) * st.speed; st.last = Math.max(st.last, now);
+  const k = Math.max(0, Math.min(st.cur.N - 1, Math.floor(st.t * st.cur.hz)));
   if (k !== st.k) { st.k = k; draw(); }
   if (k >= st.cur.N - 1) { play(false); return; }
   requestAnimationFrame(tick);
