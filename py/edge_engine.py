@@ -53,6 +53,10 @@ NN_EVERY = int(HZ)             # 10 steps = 1 s
 TAU_FAST = 0.5                 # gravity EMA for the "fast" yaw projection (phone_log)
 TAU_MAG = 1.0                  # magnetometer EMA
 STOP_V, STOP_S, STOP_GYRO = 0.3, 3, 0.03   # strict stop: NN speed (m/s), consecutive s, max |gyro| (rad/s)
+# map_mode="hmm" preset (Phase 9, README_PHASE9): HMM road matcher without service roads; a road
+# update only on a confident match, while the filter sigma <= 25 m, if it passes a chi2 innovation
+# gate, and it never moves speed or gyro bias. Train LODO: mean median drift 13.6 -> 11.7 %.
+MAP_HMM = dict(exclude=("service",), sigma_max=25.0, keep=3, heading=True, chi2=6.63)
 
 
 class OnnxSpeedNet:
@@ -108,23 +112,36 @@ class EdgeEngine:
                                               live["fusion_head"].replace(".json", ".pt")))
         self.head = head                       # learned fusion head (model/fusion_head.py) or None
         self.head_handover = head_handover     # hold the entry speed for handover_s before the head takes over
-        self.roads_ll = roads                  # [(lat[], lon[], tunnel, oneway)] or None
-        self.map_mode = map_mode               # "greedy" | "viterbi" | "off"
+        self.roads_ll = roads                  # [(lat[], lon[], tunnel, oneway[, highway])] or None
+        self.map_mode = map_mode               # "greedy" | "viterbi" | "hmm" | "off"
         self.vehicle = vehicle
         self.yaw_mode = yaw_mode or ("coord" if vehicle == "two_wheeler" else live["yaw_mode"])
         self.decl = math.radians(declination_deg)
         self.mount_forward = mount_forward     # device-frame forward axis override
         self.use_mag = use_mag
         # road-update safeguards (see _map_step); defaults = the phone's Phase-5/6 behaviour
-        self.map_opts = {**dict(heading=live["mm_heading"], unique=live["mm_unique"], gate_deg=live["mm_gate_deg"]),
-                         **(map_opts or {})}
+        self.map_opts = {**dict(heading=live["mm_heading"], unique=live["mm_unique"], gate_deg=live["mm_gate_deg"],
+                                # Phase 9 safeguards (defaults = off, i.e. the Phase 8 behaviour)
+                                exclude=(),           # OSM classes the matcher ignores, e.g. ("service",)
+                                sigma_max=None,       # snap only while the filter's position sigma <= this (m)
+                                keep=None,            # road-update keep mask (1 speed, 3 speed+gyro bias); None = profile
+                                corridor_sigma=0.3,   # greedy: cross-track sigma on an unambiguous road
+                                # hmm mode (road_hmm.py)
+                                conf=0.9,             # min posterior of the matched road
+                                cross_scale=0.6,      # cross-track sigma = this x road half-width (>= 1 m)
+                                heading_sigma_deg=6.0,  # road-heading update (heading=True), not near vertices
+                                beta=8.0,
+                                chi2=None),           # innovation gate on each road update (6.63 = 1 dof, 99 %)
+                         **(MAP_HMM if map_mode == "hmm" else {}), **(map_opts or {})}
         # stop detection while dead-reckoning: "profile" = the profile's zupt_v rule (nn_real: off);
         # "strict" = SpeedNet < STOP_V for STOP_S s in a row AND a still gyro (see README_EDGE)
         self.zupt = zupt or ("strict" if live["zupt_strict"] else "profile")
         self.still_s = 0
 
         self.f = Filter(); self.f.set_noise(self.cfg["arw"], self.cfg["brw"], self.cfg["srw"])
-        self.f.set_map_keep_speed(self.cfg.get("mm_keep_speed", False))
+        keep = self.map_opts["keep"]
+        self.f.set_map_keep_speed(int(self.cfg.get("mm_keep_speed", False)) if keep is None else keep)
+        self.hmm = None
         self.sc = SpeedCal(); self.aln = Align(); self.ya = HA.YawAlign()
         self.handover = int(self.cfg.get("handover_s", 0.0) * HZ)
         self.rw = None
@@ -253,13 +270,49 @@ class EdgeEngine:
                 f.update_curvature(float(np.dot(a, left)), psidot, self.cfg["curv_sigma"])
         self.since_gnss += 1
         self.snapped = False
-        if self.rw is not None and self.map_mode != "off" and dr:
+        if self.hmm is not None:
+            self._map_step_hmm(dt, dr)
+        elif self.rw is not None and self.map_mode != "off" and dr:
             self._map_step()
         elif not dr:
             self.hist.clear(); self.vit_way = -1
 
+    def _pos_sigma(self):
+        cv = self.f.cov()
+        return math.sqrt(max(cv[0] + cv[1], 0.0) / 2)
+
+    def _map_step_hmm(self, dt, dr):
+        """1 Hz HMM forward filter, always running (so it is locked on at outage start);
+        a road update only while dead-reckoning, on a confident match, while the filter
+        is still tight enough for the match to be trusted (DrishtiNav's gating)."""
+        st = self.f.state(); o = self.map_opts
+        self.hmm.add_travel(abs(st[3]) * dt)
+        self.hmm_steps = getattr(self, "hmm_steps", 0) + 1
+        if self.hmm_steps % NN_EVERY:
+            return
+        ps = self._pos_sigma()
+        m = self.hmm.update((st[0], st[1]), st[2], abs(st[3]), ps)
+        if m is None or not dr or m["conf"] < o["conf"] or abs(st[3]) < 1.0:
+            return
+        if o["sigma_max"] is not None and ps > o["sigma_max"]:
+            return
+        brg = m["bearing"]
+        nE, nN = -math.cos(brg), math.sin(brg)
+        cross = (m["foot"][0] - st[0]) * nE + (m["foot"][1] - st[1]) * nN
+        sc = max(1.0, o["cross_scale"] * m["half_width"]); cv = self.f.cov()
+        if o["chi2"] is not None and cross * cross / (nE * nE * cv[0] + nN * nN * cv[1] + sc * sc) > o["chi2"]:
+            return                                  # the road disagrees with the filter: do not trust it
+        self.f.update_crosstrack(nE, nN, cross, sc)
+        if o["heading"] and m["seg_len"] >= 25.0 and m["end_dist"] >= 8.0:
+            sh = math.radians(o["heading_sigma_deg"]); dpsi = P._wrap(brg - st[2])
+            if o["chi2"] is None or dpsi * dpsi / (self.f.cov()[2] + sh * sh) <= o["chi2"]:
+                self.f.update_heading(brg, sh)
+        self.snapped = True
+
     def _map_step(self):
         st = self.f.state()
+        if self.map_opts["sigma_max"] is not None and self._pos_sigma() > self.map_opts["sigma_max"]:
+            return
         if self.map_mode == "viterbi":
             if self.dr_steps % NN_EVERY == 1:                # 1 Hz fixed-lag decode
                 self.hist.append((st[0], st[1], st[2]))
@@ -281,7 +334,7 @@ class EdgeEngine:
         if min(db, math.pi - db) > math.radians(o["gate_deg"]):
             return
         self.f.update_crosstrack(-math.cos(brg), math.sin(brg), m["cross"],
-                                 0.3 if m["corridor"] else self.cfg["mm_cross_sigma"])
+                                 o["corridor_sigma"] if m["corridor"] else self.cfg["mm_cross_sigma"])
         if o["heading"]:
             tgt = brg if db < math.pi / 2 else brg + math.pi
             self.f.update_heading(tgt, math.radians(1 if m["corridor"] else self.cfg["mm_heading_sigma_deg"]))
@@ -302,9 +355,15 @@ class EdgeEngine:
         self.masked = bool(masked)
         if self.lat0 is None:
             self.lat0, self.lon0 = lat, lon
-            if self.roads_ll is not None and self.map_mode != "off":
+            if self.roads_ll is not None and self.map_mode == "hmm":
+                from road_hmm import RoadGraph, HMMMatcher
+                g = RoadGraph.cached(self.roads_ll, lat, lon, tuple(self.map_opts["exclude"]))
+                self.hmm = HMMMatcher(g, beta=self.map_opts["beta"])
+            elif self.roads_ll is not None and self.map_mode != "off":
                 from road_window import RoadWindow
-                self.rw = RoadWindow(self.roads_ll, lat, lon)
+                ex = set(self.map_opts["exclude"])
+                self.rw = RoadWindow([w[:4] for w in self.roads_ll if (w[4] if len(w) > 4 else None) not in ex],
+                                     lat, lon)
         eg, ng = self._en(lat, lon)
         has_v = speed == speed; has_b = bearing_deg == bearing_deg
         brg = math.radians(bearing_deg) if has_b else 0.0
@@ -466,7 +525,7 @@ def main(argv=None):
     ap.add_argument("--profile", default=P.SHIPPED)
     ap.add_argument("--head", help="learned fusion head (.pt from model/fusion_head.py)")
     ap.add_argument("--roads", help="roads.bin (tools/osm_layers.py) for road snapping")
-    ap.add_argument("--map-mode", choices=["greedy", "viterbi", "off"], default="greedy")
+    ap.add_argument("--map-mode", choices=["greedy", "viterbi", "hmm", "off"], default="greedy")
     ap.add_argument("--vehicle", choices=["car", "two_wheeler"], default="car")
     ap.add_argument("--yaw-mode", choices=["fast", "slow", "coord"])
     ap.add_argument("--declination-deg", type=float, default=0.0)
@@ -486,7 +545,7 @@ def main(argv=None):
     if a.roads:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
         from osm_layers import read_roads_bin
-        roads = read_roads_bin(a.roads)
+        roads = read_roads_bin(a.roads, with_class=True)
     head = None
     if a.head:
         from model.fusion_head import load_head

@@ -99,7 +99,7 @@ class Filter:
     def update_gnss_vel(self, v, brg, sv, sp): self.l.idr_update_gnss_vel(self.h, v, brg, sv, sp)
     def update_crosstrack(self, ne, nn, ci, s): self.l.idr_update_crosstrack(self.h, ne, nn, ci, s)
     def update_heading(self, brg, s): self.l.idr_update_heading(self.h, brg, s)
-    def set_map_keep_speed(self, keep): self.l.idr_set_map_keep_speed(self.h, int(bool(keep)))
+    def set_map_keep_speed(self, keep): self.l.idr_set_map_keep_speed(self.h, int(keep) & 3)  # 1 speed, 2 gyro bias, 3 both
     def set_heading_sigma(self, s): self.l.idr_set_heading_sigma(self.h, s)
     def state(self):
         out = (C.c_double * 5)()

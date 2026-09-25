@@ -61,3 +61,22 @@ def test_classify_layers_and_labels():
     # closed highway ways also come out of osmium as polygons: those must not become roads
     assert ol.classify(_feat("Polygon", [[[0, 0], [1, 0], [1, 1], [0, 0]]], highway="primary")) is None
     assert ol.classify(_feat("LineString", [[0, 0], [1, 1]], highway="footway")) is None
+
+
+def test_roads_bin_carries_highway_class_and_old_readers_ignore_it(tmp_path):
+    """Phase 9: bits 2-5 of the flags hold the highway class (the matcher drops service
+    roads). RoadNetwork.kt masks bits 0/1, so tunnel/oneway read back unchanged."""
+    ways = [(np.array([78.0, 78.1]), np.array([17.0, 17.1]), 1, 1, ol.HW_CODE["service"]),
+            (np.array([78.0, 78.1]), np.array([17.2, 17.3]), 0, 0, ol.HW_CODE["trunk_link"]),
+            (np.array([78.0, 78.1]), np.array([17.4, 17.5]), 0, 1)]                 # no class: 0
+    ol.write_roads_bin(tmp_path / "r.bin", ways)
+    assert [w[2:] for w in ol.read_roads_bin(tmp_path / "r.bin")] == [(1, 1), (0, 0), (0, 1)]
+    assert [w[2:] for w in ol.read_roads_bin(tmp_path / "r.bin", with_class=True)] == \
+        [(1, 1, "service"), (0, 0, "trunk_link"), (0, 1, None)]
+    assert max(ol.HW_CODE.values()) < 16                                          # fits 4 bits
+
+
+def test_oneway_minus_one_is_reversed_to_geometry_order():
+    f = _feat("LineString", [[78.0, 17.0], [78.0, 17.1]], highway="primary", oneway="-1")
+    (lon, lat, tunnel, oneway, code), = ol.road_lines(f)
+    assert oneway == 1 and lat[0] == 17.1 and lat[-1] == 17.0 and code == ol.HW_CODE["primary"]

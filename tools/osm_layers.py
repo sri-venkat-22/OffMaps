@@ -13,7 +13,8 @@
 roads.bin layout (all little-endian):
   char[4] "OMRD" | u32 version=1 | u32 nways | u32 npts
   u32 start[nways+1]    point offset of each way (start[nways] == npts)
-  u8  flags[nways]      bit0 tunnel, bit1 oneway
+  u8  flags[nways]      bit0 tunnel, bit1 oneway (in geometry order), bits2-5 highway
+                        class code (HW_CODE; 0 = unknown, files built before it)
   pad to 4 bytes
   i32 lat[npts]         degrees * 1e7
   i32 lon[npts]         degrees * 1e7
@@ -42,6 +43,9 @@ ROAD_CLASS = {
     "unclassified": ("street", 13), "residential": ("street", 13),
     "living_street": ("street", 14), "service": ("service", 15),
 }
+# highway=* -> flag code (bits 2-5 of the roads.bin flags; 0 = unknown). Append only.
+HW_CODE = {h: i + 1 for i, h in enumerate(ROAD_CLASS)}
+HW_NAME = {v: k for k, v in HW_CODE.items()}
 WATER_AREA = {("natural", "water"), ("landuse", "reservoir"), ("waterway", "riverbank")}
 WATERWAY_LINE = {"river", "canal", "stream"}
 GREEN = {("leisure", "park"), ("leisure", "garden"), ("landuse", "forest"), ("natural", "wood"),
@@ -89,16 +93,22 @@ def classify(feat: dict):
 
 
 def road_lines(feat: dict):
-    """Yield (lon[], lat[], tunnel, oneway) for a road feature (LineString or Multi)."""
+    """Yield (lon[], lat[], tunnel, oneway, hw_code) for a road feature (LineString or Multi).
+    oneway=-1 (travel against the drawing direction) is reversed, so a oneway way is
+    always driven in geometry order."""
     tags = feat.get("properties") or {}
     geom = feat["geometry"]
     parts = [geom["coordinates"]] if geom["type"] == "LineString" else geom["coordinates"]
     tunnel = int(_yes(tags.get("tunnel")) or tags.get("tunnel") == "building_passage")
-    oneway = int(_yes(tags.get("oneway")) or tags.get("oneway") == "-1")
+    rev = tags.get("oneway") == "-1"
+    oneway = int(_yes(tags.get("oneway")) or rev)
+    code = HW_CODE.get(tags.get("highway"), 0)
     for coords in parts:
         if len(coords) >= 2:
             c = np.asarray(coords, float)
-            yield c[:, 0], c[:, 1], tunnel, oneway
+            if rev:
+                c = c[::-1]
+            yield c[:, 0], c[:, 1], tunnel, oneway, code
 
 
 def split_piece(lon, lat, n=PIECE_PTS):
@@ -109,14 +119,15 @@ def split_piece(lon, lat, n=PIECE_PTS):
 
 
 def write_roads_bin(path, ways):
-    """ways: iterable of (lon[], lat[], tunnel, oneway). Returns (nways, npts)."""
+    """ways: iterable of (lon[], lat[], tunnel, oneway[, hw_code]). Returns (nways, npts)."""
     starts, flags, lats, lons, off = [0], [], [], [], 0
-    for lon, lat, tunnel, oneway in ways:
+    for lon, lat, tunnel, oneway, *code in ways:
+        code = code[0] if code else 0
         for plon, plat in split_piece(lon, lat):
             lats.append(np.round(plat * SCALE).astype("<i4"))
             lons.append(np.round(plon * SCALE).astype("<i4"))
             off += len(plon); starts.append(off)
-            flags.append(tunnel | (oneway << 1))
+            flags.append(tunnel | (oneway << 1) | ((code & 15) << 2))
     nw, npts = len(flags), off
     with open(path, "wb") as f:
         f.write(MAGIC + struct.pack("<III", VERSION, nw, npts))
@@ -128,8 +139,9 @@ def write_roads_bin(path, ways):
     return nw, npts
 
 
-def read_roads_bin(path):
-    """Python twin of RoadNetwork.kt's reader: -> list of (lat[], lon[], tunnel, oneway)."""
+def read_roads_bin(path, with_class=False):
+    """Python twin of RoadNetwork.kt's reader: -> list of (lat[], lon[], tunnel, oneway),
+    or (lat[], lon[], tunnel, oneway, highway) with with_class (highway None if unknown)."""
     b = Path(path).read_bytes()
     assert b[:4] == MAGIC, "not a roads.bin"
     ver, nw, npts = struct.unpack_from("<III", b, 4)
@@ -139,8 +151,11 @@ def read_roads_bin(path):
     flags = np.frombuffer(b, "u1", nw, o); o += nw + (-nw % 4)
     lat = np.frombuffer(b, "<i4", npts, o) / SCALE; o += 4 * npts
     lon = np.frombuffer(b, "<i4", npts, o) / SCALE
-    return [(lat[starts[i]:starts[i + 1]], lon[starts[i]:starts[i + 1]],
+    ways = [(lat[starts[i]:starts[i + 1]], lon[starts[i]:starts[i + 1]],
              int(flags[i] & 1), int(flags[i] >> 1 & 1)) for i in range(nw)]
+    if with_class:
+        ways = [w + (HW_NAME.get(int(flags[i]) >> 2 & 15),) for i, w in enumerate(ways)]
+    return ways
 
 
 def main(src, out):

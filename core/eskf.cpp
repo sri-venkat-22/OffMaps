@@ -21,7 +21,7 @@ struct idr_filter {
     double x[N];
     double P[N][N];
     double q_psi, q_bg, q_v;                    // per-second process variances
-    int map_keep_v = 0;                         // road updates may not move v (idr_set_map_keep_speed)
+    int map_keep = 0;                           // road updates may not move: bit0 v, bit1 bg (idr_set_map_keep_speed)
 
     void set_defaults() {
         std::memset(x, 0, sizeof x);
@@ -54,9 +54,9 @@ struct idr_filter {
             for (int j = 0; j < N; j++) P[i][j] -= K[i] * HP[j];
     }
 
-    // Same measurement, but the gain's row `skip` is forced to 0 (that state is not
-    // corrected). The gain is then sub-optimal, so P uses the Joseph form
-    // P = (I-KH) P (I-KH)^T + K R K^T, which is valid for any gain.
+    // Same measurement, but the gain's rows in `skip` (bit i = state i) are forced to 0
+    // (those states are not corrected). The gain is then sub-optimal, so P uses the
+    // Joseph form P = (I-KH) P (I-KH)^T + K R K^T, which is valid for any gain.
     void update_skip(const double H[N], double innov, double R, int skip) {
         double PHt[N] = {0};
         for (int i = 0; i < N; i++)
@@ -65,7 +65,7 @@ struct idr_filter {
         for (int j = 0; j < N; j++) S += H[j] * PHt[j];
         double K[N];
         for (int i = 0; i < N; i++) K[i] = PHt[i] / S;
-        K[skip] = 0.0;
+        for (int i = 0; i < N; i++) if (skip >> i & 1) K[i] = 0.0;
         for (int i = 0; i < N; i++) x[i] += K[i] * innov;
         double A[N][N];                          // A = I - K H
         for (int i = 0; i < N; i++)
@@ -82,7 +82,8 @@ struct idr_filter {
             }
     }
     void update_map(const double H[N], double innov, double R) {
-        if (map_keep_v) update_skip(H, innov, R, V); else update(H, innov, R);
+        int skip = ((map_keep & 1) ? 1 << V : 0) | ((map_keep & 2) ? 1 << BG : 0);
+        if (skip) update_skip(H, innov, R, skip); else update(H, innov, R);
     }
 };
 
@@ -164,7 +165,7 @@ void idr_update_heading(idr_filter* f, double bearing, double sigma) {
     double H[N] = {0}; H[PSI] = 1.0;
     f->update_map(H, wrap(bearing - f->x[PSI]), sigma * sigma);
 }
-void idr_set_map_keep_speed(idr_filter* f, int keep) { f->map_keep_v = keep ? 1 : 0; }
+void idr_set_map_keep_speed(idr_filter* f, int keep) { f->map_keep = keep & 3; }
 void idr_set_heading_sigma(idr_filter* f, double sigma) {
     for (int i = 0; i < N; i++) { f->P[PSI][i] = 0.0; f->P[i][PSI] = 0.0; }
     f->P[PSI][PSI] = sigma * sigma;

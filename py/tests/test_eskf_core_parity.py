@@ -56,6 +56,23 @@ def test_map_keep_speed_has_parity_and_never_moves_speed():
         assert f.state()[0] != 0.0 or f.state()[2] != 0.3     # the lane/heading did move
 
 
+def test_map_keep_speed_and_bias_has_parity_and_moves_neither():
+    """keep = 3 (speed | gyro bias): a road update may move only position and heading,
+    so a wrong road cannot leave a false gyro bias behind that keeps turning the car."""
+    a, b = EskfRef(), Filter()
+    a.set_map_keep_speed(3); b.set_map_keep_speed(3)
+    err = float(np.max(np.abs(run_eskf(a) - run_eskf(b))))
+    assert err < 1e-9, f"keep-speed+bias parity failed: max|diff|={err:.2e}"
+    for f in (EskfRef(), Filter()):
+        f.set_map_keep_speed(3); f.init(0.0, 0.0, 0.3, 10.0)
+        for _ in range(20):
+            f.predict(0.1, 0.02)
+        v0, bg0 = f.state()[3], f.state()[4]
+        f.update_crosstrack(-1.0, 0.0, 5.0, 1.0); f.update_heading(0.0, np.radians(3))
+        assert f.state()[3] == v0 and f.state()[4] == bg0
+        assert f.state()[0] != 0.0 or f.state()[2] != 0.3
+
+
 def test_gnss_vel_update_has_parity():
     """idr_update_gnss_vel in isolation: sequential scalar v then psi. It was the
     one wired observable with no oracle twin, so pin it on its own for a clear

@@ -20,7 +20,7 @@ class EskfRef:
         self.x = np.zeros(5)
         self.P = np.diag([1.0, 1.0, (1 * DEG) ** 2, 0.5 ** 2, (0.05 * DEG) ** 2])
         self.set_noise(0.3 * DEG, 0.01 * DEG, 0.7)
-        self.map_keep_v = False
+        self.map_keep = 0
 
     def set_noise(self, arw, brw, srw):
         self.q_psi, self.q_bg, self.q_v = arw * arw, brw * brw, srw * srw
@@ -36,7 +36,7 @@ class EskfRef:
         self.P -= np.outer(K, H @ self.P)
 
     def _update_skip(self, H, innov, R, skip):
-        """Gain row `skip` forced to 0; Joseph-form P (valid for a sub-optimal gain)."""
+        """Gain rows in `skip` (list of states) forced to 0; Joseph-form P (valid for a sub-optimal gain)."""
         H = np.asarray(H, float)
         PHt = self.P @ H
         K = PHt / (R + H @ PHt)
@@ -46,10 +46,11 @@ class EskfRef:
         self.P = A @ self.P @ A.T + np.outer(K, K) * R
 
     def _update_map(self, H, innov, R):
-        if self.map_keep_v: self._update_skip(H, innov, R, V)
+        skip = [s for bit, s in ((1, V), (2, BG)) if self.map_keep & bit]
+        if skip: self._update_skip(H, innov, R, skip)
         else: self._update(H, innov, R)
 
-    def set_map_keep_speed(self, keep): self.map_keep_v = bool(keep)
+    def set_map_keep_speed(self, keep): self.map_keep = int(keep) & 3   # bit0 speed, bit1 gyro bias
 
     def set_heading_sigma(self, sigma):
         self.P[PSI, :] = 0.0; self.P[:, PSI] = 0.0; self.P[PSI, PSI] = sigma * sigma

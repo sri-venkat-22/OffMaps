@@ -47,7 +47,9 @@ void idr_update_heading(idr_filter*, double bearing, double sigma);
  * loose speed random walk (the real-data srw=24) an unrestricted crosstrack
  * innovation leaked into v through the heading/position correlation and made
  * real outages WORSE with the map (README_PHASE6 6d). Default 0 = the original
- * update, bit-exact. */
+ * update, bit-exact. keep is a bitmask: 1 = speed (the original meaning of any
+ * non-zero value that callers pass as 1), 2 = gyro bias, 3 = both: a wrong road
+ * then cannot teach the filter a false bias that keeps turning it after the snap. */
 void idr_set_map_keep_speed(idr_filter*, int keep);
 /* Heading uncertainty after an init: P_psipsi = sigma^2 and psi's cross-covariances
  * zeroed. idr_init keeps the default 1 deg, which is right for a GNSS-course seed and
