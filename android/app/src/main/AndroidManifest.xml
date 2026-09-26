@@ -22,7 +22,10 @@
         <activity
             android:name="com.offmaps.nav.NavActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
             android:keepScreenOn="true">
+            <!-- configChanges: rotating the phone must not recreate the activity, whose onDestroy
+                 stops navigation and closes the drive recording. NavActivity re-lays itself out. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

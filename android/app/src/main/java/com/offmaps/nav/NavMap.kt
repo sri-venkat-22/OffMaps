@@ -77,6 +77,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
     private var following = true
     private var zoomedIn = false
     private var lastTrackPush = 0L
+    private var insetLeft = 0
     private var insetTop = 0
     private var insetBottom = 0
     private var dr = false
@@ -195,17 +196,17 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         return bmp
     }
 
-    /** Keep the attribution and the followed car clear of the header and bottom sheet. */
-    fun setInsets(topPx: Int, bottomPx: Int) {
-        insetTop = topPx; insetBottom = bottomPx; applyInsets()
+    /** Keep the attribution and the followed car clear of the header and the panel. */
+    fun setInsets(leftPx: Int, topPx: Int, bottomPx: Int) {
+        insetLeft = leftPx; insetTop = topPx; insetBottom = bottomPx; applyInsets()
     }
 
     private fun applyInsets() {
         val m = map ?: return
         val gap = (8 * ctx.resources.displayMetrics.density).toInt()
-        m.uiSettings.setAttributionMargins(gap, 0, 0, insetBottom + gap)
+        m.uiSettings.setAttributionMargins(insetLeft + gap, 0, 0, insetBottom + gap)
         @Suppress("DEPRECATION")
-        m.setPadding(0, insetTop, 0, insetBottom)
+        m.setPadding(insetLeft, insetTop, 0, insetBottom)
     }
 
     fun clear() {

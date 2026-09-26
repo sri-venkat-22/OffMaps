@@ -56,21 +56,29 @@ It reacted to ordinary road texture. *Fixed:* a mark now needs all three of:
 That gives 1.7 marks per km, and a 2 g pothole is still found every time.
 *Pinned by:* `py/tests/test_pothole_filter.py`, which replays a real drive.
 
+**7. Turning the phone ended the drive.** The navigation screen did not handle rotation, so
+Android re-created it, and its `onDestroy` stopped navigation and closed the drive
+recording. A phone on a car mount is often sideways, so one rotation mid-drive would end
+the session, and landscape also hid the map behind the panel. *Found by:* installing the
+app on the Redmi, which was lying sideways. *Fixed:* the activity now handles rotation
+itself (`configChanges` in the manifest). In landscape the panel becomes a side card, as
+in Google Maps. Checked on the emulator: navigation keeps running across a rotation.
+
 ## Results that flattered us
 
-**7. Oracle maps.** Every early road-snapping number used each drive's own GNSS track as the
+**8. Oracle maps.** Every early road-snapping number used each drive's own GNSS track as the
 "map". On the real OpenStreetMap network, greedy snapping made outages much worse: validation
 drift went from 11.3 % to 31.7 %. A dead-reckoned position that is tens of metres off
 along-track snaps to the wrong street at junctions. Snapping stayed off until the gated HMM
 matcher, which does help: 13.6 → 11.7 % on train drives, and the paired bootstrap intervals
 exclude zero at 30, 60 and 120 s. See `git show ec89099:README_PHASE8.md` (§8d) and `py/phase9_map_eval.py`.
 
-**8. Zero-velocity updates.** A naive rule (ZUPT whenever SpeedNet reads under 0.5 m/s)
+**9. Zero-velocity updates.** A naive rule (ZUPT whenever SpeedNet reads under 0.5 m/s)
 took validation drift from 11.3 % to 33.6 %. At 10 Hz, slow traffic looks like a stop, and
 a false ZUPT also corrupts the gyro bias. It never shipped. A strict detector is built and
 off until a stationary test on the target phone.
 
-**9. Selection optimism we cannot fully remove.** The train-drive numbers for the fusion
+**10. Selection optimism we cannot fully remove.** The train-drive numbers for the fusion
 head and the map carry some selection optimism, and the README says so wherever they
 appear:
 - each drive is scored by models that never saw it;
@@ -82,15 +90,15 @@ chosen on it. The validation set, about 1 h, is too small to separate the last s
 
 ## Things that do not work (yet)
 
-**10. Drift under 10 %.** It is not reached. The shipped loop is at 11.7 % on train drives
+**11. Drift under 10 %.** It is not reached. The shipped loop is at 11.7 % on train drives
 (leave-one-drive-out) and 16.4 % on the test drives.
 
-**11. The tunnel benchmark.** The PS example asks for under 100 m over 1 km. It is not met:
+**12. The tunnel benchmark.** The PS example asks for under 100 m over 1 km. It is not met:
 in the Hyderabad Mindspace Underpass scenario the shipped app ends a median 163 m off. In
 steady cruising, simply holding the entry speed beats the AI speed there (`py/tunnel_scenario.py`,
 `out/tunnel/summary.md`).
 
-**12. An output nobody read.** SpeedNet has had a motion-class head (stopped / straight /
+**13. An output nobody read.** SpeedNet has had a motion-class head (stopped / straight /
 turning) since it was first trained, but nothing used it. Its raw probabilities were
 mis-calibrated: a raw 0.6–0.8 meant "stopped" about 70 % of the time on validation, and it
 almost never went past 0.8. It is now Platt-scaled on held-out outputs and ships as

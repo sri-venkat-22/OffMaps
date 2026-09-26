@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.view.WindowManager
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -26,6 +27,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -72,8 +74,12 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     private lateinit var chipTrust: Ui.Chip
     private var pillState = ""
 
-    // bottom sheet
+    // bottom sheet (portrait) / side panel (landscape)
+    private lateinit var header: View
     private lateinit var sheet: LinearLayout
+    private lateinit var sheetBox: ScrollView
+    private lateinit var handle: View
+    private var landscape = false
     private lateinit var readyPanel: LinearLayout
     private lateinit var livePanel: LinearLayout
     private lateinit var rowMap: TextView
@@ -136,9 +142,8 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
         val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG) }
         root.addView(mapView, FrameLayout.LayoutParams(MATCH, MATCH))
-        root.addView(buildHeader(), FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply {
-            val m = dp(12f); setMargins(m, m, m, 0)
-        })
+        header = buildHeader()
+        root.addView(header, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
         followBtn = ImageView(this).apply {
             setImageResource(com.offmaps.R.drawable.ic_my_location)
             val p = dp(12f); setPadding(p, p, p, p)
@@ -151,17 +156,18 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
             setMargins(0, 0, dp(16f), dp(16f))
         })
         sheet = buildSheet()
-        root.addView(sheet, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
-        // keep the re-centre button, the OSM attribution and the followed car above the sheet
-        sheet.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            val h = bottom - top
-            if (h == oldBottom - oldTop) return@addOnLayoutChangeListener
-            followBtn.post {                              // not during this layout pass
-                (followBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = h + dp(12f)
-                followBtn.requestLayout()
-                navMap.setInsets(dp(150f), h)
-            }
+        sheetBox = ScrollView(this).apply {                   // scrolls when the screen is short (landscape)
+            isFillViewport = false; isVerticalScrollBarEnabled = false
+            elevation = Ui.dp(this@NavActivity, 8f)
+            isClickable = true                                // don't pass touches to the map
+            addView(sheet)
         }
+        root.addView(sheetBox, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+        // keep the re-centre button, the OSM attribution and the followed car clear of the panels
+        val onLayout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> followBtn.post { updateInsets() } }
+        sheetBox.addOnLayoutChangeListener(onLayout)
+        header.addOnLayoutChangeListener(onLayout)
+        layoutFor(resources.configuration)
 
         startBtn.setOnClickListener {
             if (running) stopNav() else if (ensurePerms()) startNav()
@@ -190,6 +196,51 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     // ------------------------------------------------------------------ layout
 
+    /**
+     * Portrait: header card on top, the panel as a bottom sheet. Landscape (a phone on a car
+     * mount is often sideways): the panel becomes a card down the left side, as Google Maps
+     * does, and the header sits over the map to its right. The activity handles rotation
+     * itself (manifest configChanges), so turning the phone never stops navigation.
+     */
+    private fun layoutFor(cfg: Configuration) {
+        landscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val m = dp(12f)
+        if (landscape) {
+            val w = dp(PANEL_W_DP)
+            sheetBox.layoutParams = FrameLayout.LayoutParams(w, MATCH, Gravity.START).apply { setMargins(m, m, 0, m) }
+            sheetBox.background = Ui.rounded(this, Ui.SHEET, 16f)
+            header.layoutParams = FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { setMargins(w + 2 * m, m, m, 0) }
+            handle.visibility = View.GONE
+        } else {
+            sheetBox.layoutParams = FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)
+            sheetBox.background = Ui.sheet(this, Ui.SHEET, 16f)
+            header.layoutParams = FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { setMargins(m, m, m, 0) }
+            handle.visibility = View.VISIBLE
+        }
+        sheetBox.requestLayout(); header.requestLayout()
+    }
+
+    private var lastInsets = IntArray(0)
+
+    private fun updateInsets() {
+        val m = dp(12f)
+        val left = if (landscape) sheetBox.width + m else 0
+        val top = header.height + m
+        val bottom = if (landscape) 0 else sheetBox.height
+        val btn = if (landscape) dp(16f) else sheetBox.height + m
+        val now = intArrayOf(left, top, bottom, btn)
+        if (now.contentEquals(lastInsets)) return
+        lastInsets = now
+        (followBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = btn
+        followBtn.requestLayout()
+        navMap.setInsets(left, top, bottom)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        layoutFor(newConfig)
+    }
+
     private fun buildHeader(): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -217,12 +268,9 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         val sh = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val p = dp(18f); setPadding(p, dp(10f), p, dp(16f))
-            background = Ui.sheet(this@NavActivity, Ui.SHEET, 16f)
-            elevation = Ui.dp(this@NavActivity, 8f)
-            isClickable = true                                   // don't pass touches to the map
         }
-        sh.addView(View(this).apply { background = Ui.rounded(this@NavActivity, Ui.STROKE, 999f) },
-            LinearLayout.LayoutParams(dp(32f), dp(4f)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(14f) })
+        handle = View(this).apply { background = Ui.rounded(this@NavActivity, Ui.STROKE, 999f) }
+        sh.addView(handle, LinearLayout.LayoutParams(dp(32f), dp(4f)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(14f) })
 
         // --- idle: system check ---
         readyPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -615,6 +663,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     private companion object {
         const val SIM_OUTAGE = "com.offmaps.SIM_OUTAGE"   // adb-only Outage Simulator (onCreate)
+        const val PANEL_W_DP = 400f                       // landscape side panel width (the portrait sheet's width on a phone)
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
     }
