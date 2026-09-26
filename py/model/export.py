@@ -23,16 +23,20 @@ from __future__ import annotations
 import argparse, hashlib, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, torch
-from model.tcn import SpeedNet
-from model.nn_model import DEFAULT
+from model.nn_model import DEFAULT, build_net
 
 OUT_NAMES = ["mu", "logvar", "slip", "cls"]
+
+
+def _in_shape(net):
+    """(channels, window) the net was trained on (model/features.py spec)."""
+    return net.inp.in_channels, getattr(net, "win", 20)
 
 
 def export_onnx(net, path, opset=17):
     """Export with batch as a dynamic axis so any number of 1 s steps runs."""
     net.eval()
-    dummy = torch.randn(1, 9, 20)
+    dummy = torch.randn(1, *_in_shape(net))
     axes = {n: {0: "batch"} for n in ["imu", *OUT_NAMES]}
     torch.onnx.export(net, dummy, path, input_names=["imu"], output_names=OUT_NAMES,
                       opset_version=opset, dynamo=False, dynamic_axes=axes)
@@ -48,7 +52,7 @@ def verify_parity(net, path, batches=(1, 8, 37), atol=1e-4, seed=0):
     g = torch.Generator().manual_seed(seed)
     worst = {n: 0.0 for n in OUT_NAMES}
     for b in batches:
-        x = torch.randn(b, 9, 20, generator=g)
+        x = torch.randn(b, *_in_shape(net), generator=g)
         with torch.no_grad():
             ref = [t.numpy() for t in net(x)]
         got = sess.run(None, {"imu": x.numpy()})
@@ -61,7 +65,7 @@ def verify_parity(net, path, batches=(1, 8, 37), atol=1e-4, seed=0):
 
 def load_checkpoint(path=DEFAULT):
     ckpt = torch.load(path, map_location="cpu")
-    net = SpeedNet(); net.load_state_dict(ckpt["state"]); net.eval()
+    net = build_net(ckpt.get("feat")); net.load_state_dict(ckpt["state"]); net.eval()
     return net
 
 
@@ -82,6 +86,7 @@ def build_profile(ckpt_path, onnx_path):
         "checkpoint": os.path.basename(ckpt_path),
         "onnx_sha256": sha,
         "calib": {k: float(calib[k]) for k in ("a", "b", "s")},
+        "feat": ckpt.get("feat") or {"version": 1, "win": 20},
         "eskf": {**ESKF_DEFAULT, **(ckpt.get("eskf_cfg") or {})},
         "live": {**LIVE_DEFAULT, **(ckpt.get("live_cfg") or {})},
     }

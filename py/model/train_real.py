@@ -31,7 +31,7 @@ from data.iovnbd_sync import load_sync_dir
 from model.tcn import SpeedNet, count_params
 from model.dataset import SeqDataset, L, STEP
 from model import loss as LOSS
-from model.nn_model import _raw_predict, apply_calib, DEFAULT
+from model.nn_model import _raw_predict, apply_calib, build_net, DEFAULT
 from model.train import fit_calibration
 from data.outage import tilde_home
 from eval.metrics import sigma_calibration
@@ -44,12 +44,23 @@ SPLIT = {
 OUT = os.path.join(os.path.dirname(__file__), "nn_real.pt")
 
 
-def split_drives(drives):
+FOLDS = {"M": r"/S-M$", "S1": r"/S1/", "S2": r"/S2/", "S4": r"/S4/"}   # the train drives
+
+
+def fold_split(hold_out):
+    """SPLIT with one train drive moved to test: the out-of-fold nets (model/oof/)."""
+    rx = FOLDS[hold_out]
+    rest = "|".join(v for k, v in FOLDS.items() if k != hold_out)
+    return {"train": rest, "val": SPLIT["val"], "test": SPLIT["test"] + "|" + rx}
+
+
+def split_drives(drives, split=None):
     """Assign every synced segment to exactly one split by its SOURCE DRIVE."""
-    parts = {k: [] for k in SPLIT}
+    split = split or SPLIT
+    parts = {k: [] for k in split}
     for d in drives:
         src = d.vehicle_id.split("#")[0]
-        hit = [k for k, rx in SPLIT.items() if re.search(rx, src)]
+        hit = [k for k, rx in split.items() if re.search(rx, src)]
         if len(hit) != 1:
             raise ValueError(f"drive {src!r} matches splits {hit} -- must be exactly one")
         parts[hit[0]].append(d)
@@ -114,7 +125,7 @@ def recalibrate(data, ckpt=OUT):
     """Re-run calibrate() on a saved checkpoint's own val split (no retraining)."""
     parts = split_drives(load_sync_dir(data, verbose=False))
     ck = torch.load(ckpt, map_location="cpu")
-    net = SpeedNet(); net.load_state_dict(ck["state"]); net.eval()
+    net = build_net(ck.get("feat")); net.load_state_dict(ck["state"]); net.eval()
     calib, info = calibrate(net, parts["val"])
     ck["calib"] = calib; ck.setdefault("meta", {})["calibration"] = info
     ck["meta"] = tilde_home(ck["meta"])
@@ -128,14 +139,18 @@ EXTRA_TRAIN = r"\(Driver E\)"   # loosely-mounted phones: good vehicle labels, n
 
 
 def train(data, *, epochs=20, lr=1e-3, init="synthetic", seed=0, out=OUT, workers=0,
-          extra_min_corr=None, patience=None):
+          extra_min_corr=None, patience=None, feat=1, win=None, hold_out=None, device="cpu"):
     """extra_min_corr: also train on EXTRA_TRAIN drives synced at this looser yaw
     correlation (TRAIN ONLY -- val/test keep the strict 0.8 loader). Their labels
     are the vehicle's GNSS speed (QC 0.994-1.003); only the phone mount is loose.
     patience: stop after this many epochs without a val improvement (the kept
-    model is the best-val epoch either way)."""
+    model is the best-val epoch either way).
+    feat/win: feature version and window (model/features.py); version 2 has no
+    synthetic checkpoint to start from, so it trains from scratch.
+    hold_out: a FOLDS key -- that train drive is left out (an out-of-fold net)."""
     torch.manual_seed(seed); np.random.seed(seed)
-    parts = split_drives(load_sync_dir(data, verbose=False))
+    split = fold_split(hold_out) if hold_out else SPLIT
+    parts = split_drives(load_sync_dir(data, verbose=False), split)
     if extra_min_corr is not None:
         extra = [d for d in load_sync_dir(data, min_corr=extra_min_corr, verbose=False)
                  if re.search(EXTRA_TRAIN, d.vehicle_id)]
@@ -148,29 +163,33 @@ def train(data, *, epochs=20, lr=1e-3, init="synthetic", seed=0, out=OUT, worker
         print(f"{k:5s}: {sum(len(d) for d in v)/10/3600:5.2f} h  "
               f"{sorted({d.vehicle_id.split('#')[0] for d in v})}")
 
-    net = SpeedNet()
+    net = build_net({"version": feat, "win": win})
     if init == "synthetic":
+        if feat != 1:
+            raise ValueError("the synthetic checkpoint is feature version 1; use --init scratch")
         net.load_state_dict(torch.load(DEFAULT, map_location="cpu")["state"])
     ident = {"a": 0.0, "b": 1.0, "s": 1.0}
     net.eval()
     base = speed_eval(net, parts["val"], ident)
     print(f"init={init}: val MAE {base['mae']:.2f} m/s bias {base['bias']:+.2f}")
 
-    dl = DataLoader(SeqDataset(parts["train"], seed=seed), batch_size=16, shuffle=True,
-                    num_workers=workers)
+    dl = DataLoader(SeqDataset(parts["train"], seed=seed, feat=feat, win=net.win), batch_size=16,
+                    shuffle=True, num_workers=workers, persistent_workers=workers > 0)
+    dev = torch.device(device)
     opt = torch.optim.Adam(net.parameters(), lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
     print(f"params={count_params(net):,}  train_seqs={len(dl.dataset)}  epochs={epochs}")
     best, best_state, hist = float("inf"), None, []
     for ep in range(epochs):
-        t0 = time.time(); net.train(); tot = 0.0
+        t0 = time.time(); net.to(dev).train(); tot = 0.0
         for X, dt, cl in dl:
+            X, dt, cl = X.to(dev), dt.to(dev), cl.to(dev)
             B = X.shape[0]
             mu, lv, _, logits = net(X.reshape(B * L, *X.shape[2:]))
             mu, lv, logits = mu.reshape(B, L), lv.reshape(B, L), logits.reshape(B, L, 4)
             loss = LOSS.total(mu, lv, dt, logits, cl)
             opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * B
-        sched.step(); net.eval()
+        sched.step(); net.to("cpu").eval()
         ev = speed_eval(net, parts["val"], ident)          # raw (uncalibrated) val speed
         hist.append(dict(epoch=ep, loss=tot / len(dl.dataset), **ev))
         tag = ""
@@ -183,12 +202,13 @@ def train(data, *, epochs=20, lr=1e-3, init="synthetic", seed=0, out=OUT, worker
 
     net.load_state_dict(best_state); net.eval()
     calib, cinfo = calibrate(net, parts["val"])              # chosen on VAL drives only
-    meta = dict(data=tilde_home(os.path.abspath(data)), split=SPLIT, init=init, epochs=epochs, lr=lr,
+    meta = dict(data=tilde_home(os.path.abspath(data)), split=split, init=init, epochs=epochs, lr=lr,
+                feat=net.feat, hold_out=hold_out,
                 extra_train=(EXTRA_TRAIN, extra_min_corr) if extra_min_corr is not None else None,
                 seed=seed, best_val_mae=best, history=hist,
                 calibration=cinfo, synced_segments={k: [d.vehicle_id for d in v]
                                                      for k, v in parts.items()})
-    torch.save({"state": net.state_dict(), "calib": calib, "meta": meta}, out)
+    torch.save({"state": net.state_dict(), "calib": calib, "feat": net.feat, "meta": meta}, out)
     with open(out.replace(".pt", ".json"), "w") as f:
         json.dump(meta, f, indent=2, default=float)
     print(f"saved {out}  (test split untouched -- score it with validate_realdata)")
@@ -207,13 +227,18 @@ def main():
     ap.add_argument("--extra-min-corr", type=float, default=None,
                     help="also TRAIN on Driver-E drives synced at this looser yaw corr (e.g. 0.3)")
     ap.add_argument("--patience", type=int, default=None)
+    ap.add_argument("--feat", type=int, default=1, choices=[1, 2], help="feature version (model/features.py)")
+    ap.add_argument("--win", type=int, default=None, help="window in 10 Hz samples (default: the version's)")
+    ap.add_argument("--hold-out", choices=list(FOLDS), help="leave this train drive out (out-of-fold net)")
+    ap.add_argument("--device", default="cpu", help="cpu | mps (training only; eval runs on cpu)")
     ap.add_argument("--recalibrate", action="store_true",
                     help="only re-run the val-chosen calibration on an existing --out checkpoint")
     a = ap.parse_args()
     if a.recalibrate:
         return recalibrate(a.data, a.out)
     train(a.data, epochs=a.epochs, lr=a.lr, init=a.init, seed=a.seed, out=a.out, workers=a.workers,
-          extra_min_corr=a.extra_min_corr, patience=a.patience)
+          extra_min_corr=a.extra_min_corr, patience=a.patience, feat=a.feat, win=a.win,
+          hold_out=a.hold_out, device=a.device)
 
 
 if __name__ == "__main__":

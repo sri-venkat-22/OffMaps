@@ -8,7 +8,7 @@ the IMU window, lay it along the gyro-integrated heading. Emits per-sample
 from __future__ import annotations
 import os, numpy as np, torch
 from model.tcn import SpeedNet
-from model.features import window_features, WIN
+from model.features import spec
 from model.dataset import STEP
 from eval.models import model
 
@@ -26,11 +26,23 @@ def load_net(path=None):
     path = path or DEFAULT
     if path not in _CACHE:
         ckpt = torch.load(path, map_location="cpu")
-        net = SpeedNet(); net.load_state_dict(ckpt["state"])
+        net = build_net(ckpt.get("feat")); net.load_state_dict(ckpt["state"])
         net.eval(); _CACHE[path] = net
         _CALIB[path] = ckpt.get("calib", IDENTITY_CALIB)
         _ESKF[path] = ckpt.get("eskf_cfg")
     return _CACHE[path]
+
+
+def build_net(feat=None):
+    """An untrained SpeedNet for a checkpoint's feature spec ({"version", "win"};
+    None = version 1, the 2 s window every checkpoint before v2 was trained on).
+    The spec rides on the net (feat_fn, win) so every caller windows it correctly."""
+    feat = feat or {"version": 1}
+    fn, c, win = spec(feat["version"], feat.get("win"))
+    net = SpeedNet(n_in=c)
+    net.feat = {"version": int(feat["version"]), "win": win}
+    net.feat_fn, net.win = fn, win
+    return net
 
 
 def get_eskf_cfg(path=None):
@@ -49,16 +61,27 @@ def get_calib(path=None):
 def _raw_predict(net, drive, i0, i1):
     """Uncalibrated per-second displacement + sigma over [i0,i1)."""
     starts = list(range(i0, i1, STEP))
-    X = np.empty((len(starts), *window_features(drive.acc[:WIN], drive.gyro[:WIN]).shape), np.float32)
+    fn, W = getattr(net, "feat_fn", None), getattr(net, "win", None)
+    if fn is None:                                  # a bare SpeedNet() (train.py): version 1
+        fn, _, W = spec(1)
+    A = np.empty((len(starts), W, 3), np.float32); G = np.empty_like(A)
     for k, s in enumerate(starts):
-        ws = max(0, s + STEP - WIN)                 # 2 s window ending at the step's end
-        acc, gyro = drive.acc[ws:ws + WIN], drive.gyro[ws:ws + WIN]
-        if len(acc) < WIN:                          # pad at the very start
-            acc = np.pad(acc, ((WIN - len(acc), 0), (0, 0)), mode="edge")
-            gyro = np.pad(gyro, ((WIN - len(gyro), 0), (0, 0)), mode="edge")
-        X[k] = window_features(acc, gyro)
+        ws = max(0, s + STEP - W)                   # window ending at the step's end
+        acc, gyro = drive.acc[ws:ws + W], drive.gyro[ws:ws + W]
+        if len(acc) < W:                            # pad at the very start
+            acc = np.pad(acc, ((W - len(acc), 0), (0, 0)), mode="edge")
+            gyro = np.pad(gyro, ((W - len(gyro), 0), (0, 0)), mode="edge")
+        A[k], G[k] = acc, gyro
+    if getattr(net, "feat", {"version": 1})["version"] == 1:
+        X = np.stack([fn(a, g) for a, g in zip(A, G)]) if len(starts) else np.empty((0, 9, W), np.float32)
+    else:
+        X = fn(A, G)
+    mu, logvar = [], []
     with torch.no_grad():
-        mu, logvar, _, _ = net(torch.from_numpy(X))
+        for b in range(0, len(X), 2048):            # bounded memory for 20 s windows
+            m, lv, _, _ = net(torch.from_numpy(X[b:b + 2048]))
+            mu.append(m); logvar.append(lv)
+    mu = torch.cat(mu) if mu else torch.empty(0); logvar = torch.cat(logvar) if logvar else torch.empty(0)
     return np.array(starts), mu.numpy(), np.exp(0.5 * logvar.numpy())
 
 

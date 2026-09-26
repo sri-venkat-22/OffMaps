@@ -1,6 +1,12 @@
 package com.offmaps.nav
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
+import android.view.WindowManager
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.pm.PackageManager
@@ -167,6 +173,12 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
             if (!running) return@setOnClickListener
             engine.setMasked(!engine.isMasked()); refreshButtons()
         }
+        // Outage Simulator over USB, for scheduled outages during a drive (nobody touches the phone):
+        //   adb shell am broadcast -a com.offmaps.SIM_OUTAGE --ez on true|false
+        // Only a sender holding DUMP (the adb shell) can reach it; ordinary apps cannot.
+        val filter = IntentFilter(SIM_OUTAGE)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(outageRx, filter, "android.permission.DUMP", null, Context.RECEIVER_EXPORTED)
+        else registerReceiver(outageRx, filter, "android.permission.DUMP", null)
         snapBtn.setOnClickListener {
             engine.setMapAid(!engine.isMapAid()); refreshButtons()
         }
@@ -395,6 +407,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     private fun startNav() {
         if (running) return
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)   // a sleeping screen can pause sensors (MIUI)
         fusionThread = HandlerThread("fusion").apply { start() }
         fusionHandler = Handler(fusionThread.looper)
         navMap.clear()
@@ -422,6 +435,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     private fun stopNav() {
         running = false
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sm.unregisterListener(this)
         lm.removeUpdates(this)
         lm.unregisterGnssStatusCallback(gnssStatus)
@@ -594,9 +608,21 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
     override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); mapView.onSaveInstanceState(out) }
 
-    override fun onDestroy() { if (running) stopNav(); pulse?.cancel(); mapView.onDestroy(); super.onDestroy() }
+    override fun onDestroy() {
+        try { unregisterReceiver(outageRx) } catch (_: IllegalArgumentException) {}
+        if (running) stopNav(); pulse?.cancel(); mapView.onDestroy(); super.onDestroy()
+    }
+
+    private val outageRx = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            if (!running) return
+            engine.setMasked(i.getBooleanExtra("on", !engine.isMasked())); refreshButtons()
+        }
+    }
+
 
     private companion object {
+        const val SIM_OUTAGE = "com.offmaps.SIM_OUTAGE"   // adb-only Outage Simulator (onCreate)
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
     }

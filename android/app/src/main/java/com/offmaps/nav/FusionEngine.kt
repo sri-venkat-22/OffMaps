@@ -110,8 +110,9 @@ class FusionEngine(
     @Volatile private var roads: RoadNetwork? = null
 
     // ---- 10 Hz decimated IMU ring buffer for the NN window ----
-    private val accBuf = Array(Features.WIN) { DoubleArray(3) }
-    private val gyrBuf = Array(Features.WIN) { DoubleArray(3) }
+    private val accBuf = Array(Features.MAX_WIN) { DoubleArray(3) }
+    private val gyrBuf = Array(Features.MAX_WIN) { DoubleArray(3) }
+    private var win = Features.WIN              // the profile's NN window (samples); set in start()
     private var bufFill = 0
     private var bufHead = 0
 
@@ -183,7 +184,9 @@ class FusionEngine(
     fun start() {
         if (running) return
         val p = SpeedProfile.fromAssets(context, profileName)
+        require(p.win in 1..Features.MAX_WIN) { "profile window ${p.win} > ${Features.MAX_WIN}" }
         profile = p
+        win = p.win
         filter = Filter().also {
             it.setNoise(p.arw, p.brw, p.srw)
             it.setMapKeepSpeed(if (p.mmHmm) 3 else if (p.mmKeepSpeed) 1 else 0)   // HMM: keep speed + gyro bias
@@ -340,8 +343,8 @@ class FusionEngine(
         lastYaw = gyroZ
         accBuf[bufHead][0] = accL[0]; accBuf[bufHead][1] = accL[1]; accBuf[bufHead][2] = accL[2]
         gyrBuf[bufHead][0] = gyrL[0]; gyrBuf[bufHead][1] = gyrL[1]; gyrBuf[bufHead][2] = gyrL[2]
-        bufHead = (bufHead + 1) % Features.WIN
-        if (bufFill < Features.WIN) bufFill++
+        bufHead = (bufHead + 1) % win
+        if (bufFill < win) bufFill++
 
         if (!initialized) { lastStepNs = tNs; return }   // wait for first GNSS fix to seed the filter
         val f = filter ?: return
@@ -355,14 +358,14 @@ class FusionEngine(
 
         // 1 s NN cadence: speed / ZUPT update
         stepsSinceNn++
-        if (stepsSinceNn >= NN_EVERY_STEPS && bufFill >= Features.WIN) {
+        if (stepsSinceNn >= NN_EVERY_STEPS && bufFill >= win) {
             stepsSinceNn = 0
             val (accW, gyrW) = orderedWindow()
             val pred = net!!.predict(accW, gyrW)          // [v_calibrated, sigma]
             vNnRaw = pred[0]; sigHeld = pred[1]           // always: the self-cal regressor
             vHeld = calApply(vNnRaw)                      // Doppler self-cal (frozen k,c)
             var gMax = 0.0; var yawSum = 0.0
-            for (i in Features.WIN - NN_EVERY_STEPS until Features.WIN) {
+            for (i in win - NN_EVERY_STEPS until win) {
                 gMax = maxOf(gMax, sqrt(gyrW[i][0] * gyrW[i][0] + gyrW[i][1] * gyrW[i][1] + gyrW[i][2] * gyrW[i][2]))
                 yawSum += gyrW[i][2]
             }
@@ -372,9 +375,9 @@ class FusionEngine(
                 f.updateZupt(yawSum / NN_EVERY_STEPS)     // strict stop: v = 0 and gyro bias (ZARU)
             } else if (deadReckoning() && hd != null && hs != null) {
                 // learned fusion head (FusionHead.kt): the speed measurement AND its sigma
-                val last = Features.WIN - NN_EVERY_STEPS
+                val last = win - NN_EVERY_STEPS
                 val r = hd.step(hs, vNnRaw, sigHeld, drSteps / Features.HZ,
-                                accW.copyOfRange(last, Features.WIN), gyrW.copyOfRange(last, Features.WIN))
+                                accW.copyOfRange(last, win), gyrW.copyOfRange(last, win))
                 f.updateSpeed(r[0], r[1])
             } else if (deadReckoning() && drSteps > (p.handoverS * Features.HZ).toInt()) {   // else Doppler speed held
                 val zv = p.zuptV
@@ -515,10 +518,10 @@ class FusionEngine(
 
     /** Copy the ring buffer into oldest->newest order for the NN. */
     private fun orderedWindow(): Pair<Array<DoubleArray>, Array<DoubleArray>> {
-        val a = Array(Features.WIN) { DoubleArray(3) }
-        val g = Array(Features.WIN) { DoubleArray(3) }
-        for (i in 0 until Features.WIN) {
-            val idx = (bufHead + i) % Features.WIN     // bufHead points at the oldest slot
+        val a = Array(win) { DoubleArray(3) }
+        val g = Array(win) { DoubleArray(3) }
+        for (i in 0 until win) {
+            val idx = (bufHead + i) % win              // bufHead points at the oldest slot
             a[i][0] = accBuf[idx][0]; a[i][1] = accBuf[idx][1]; a[i][2] = accBuf[idx][2]
             g[i][0] = gyrBuf[idx][0]; g[i][1] = gyrBuf[idx][1]; g[i][2] = gyrBuf[idx][2]
         }

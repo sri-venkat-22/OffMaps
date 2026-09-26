@@ -1,7 +1,8 @@
 """Dilated TCN + 1 GRU + 3 heads. ~180K params, the AI Speed & Vibration Filter.
 
 Heads: (a) forward displacement over 1 s with log-variance (heteroscedastic ->
-fusable), (b) lateral slip residual, (c) 4-class motion. Input (B, 9, 20).
+fusable), (b) lateral slip residual, (c) 4-class motion. Input (B, n_in, T):
+(B, 9, 20) for feature version 1, (B, 10, 200) for version 2 (model/features.py).
 """
 from __future__ import annotations
 import torch
@@ -21,9 +22,9 @@ class TCNBlock(nn.Module):
 
 
 class SpeedNet(nn.Module):
-    def __init__(self, ch=64, k=3):
+    def __init__(self, ch=64, k=3, n_in=C):
         super().__init__()
-        self.inp = nn.Conv1d(C, ch, 1)
+        self.inp = nn.Conv1d(n_in, ch, 1)
         self.tcn = nn.Sequential(*[TCNBlock(ch, k, 2 ** i) for i in range(5)])
         self.gru = nn.GRU(ch, ch, batch_first=True)
         self.disp = nn.Linear(ch, 2)     # [mu_raw, logvar] displacement over 1 s

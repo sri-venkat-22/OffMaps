@@ -38,7 +38,7 @@ def test_fog_200hz_tracks_dead_reckons_and_recovers(fog200):
     err = np.hypot(out[:, 1] - rig["e"], out[:, 2] - rig["n"])
     assert np.median(err[:120 * 200]) < 5.0                           # GNSS on: tracks
     assert out[149 * 200, 7] == 1 and out[100 * 200, 7] == 0          # dead-reckoning flag follows the mask
-    assert err[150 * 200 - 1] > 2 * np.median(err[:120 * 200])        # outage: the fix is gone
+    assert err[150 * 200 - 1] > 2 * err[120 * 200 - 1]                # outage: the fix is gone, error grows
     assert err[165 * 200] < err[150 * 200 - 1]                        # GNSS back: re-converges
 
 

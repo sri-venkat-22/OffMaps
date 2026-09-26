@@ -299,3 +299,18 @@ def test_road_hmm_kt_matches_python_on_real_roads(harness, tmp_path):
     steps = _drive_steps(d.e[i], d.n[i], d.heading[i], np.random.default_rng(4), v=12.0)
     matched, _ = _hmm_parity(harness, tmp_path, ways7, lat0, lon0, steps)
     assert matched > 0.8 * len(steps)
+
+
+@pytest.mark.parametrize("version,win", [(1, 200), (2, 200), (2, 20)])
+def test_features_kt_versions_match_python(harness, stream, version, win):
+    """Features.features(version, window) == model/features.py for every shipped spec,
+    on a leveled real-looking window (the stream's last `win` samples, re-mount included)."""
+    acc, gyr, rem, _ = stream
+    al, gl = level_stream(acc, gyr, remounts=rem)
+    a, g = al[-win:], gl[-win:]
+    lines = "\n".join(" ".join(repr(float(x)) for x in (*a[i], *g[i])) for i in range(win))
+    kt = np.array([float(x) for x in harness(lines + "\n", "feat", str(version)).split()])
+    fn, c, w = F.spec(version, win)
+    py = fn(a, g).reshape(-1)
+    assert kt.shape == py.shape == (c * w,)
+    assert np.max(np.abs(kt - py)) < 1e-5          # Kotlin emits float32

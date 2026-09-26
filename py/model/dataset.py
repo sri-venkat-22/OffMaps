@@ -1,14 +1,14 @@
 """Turn Drives into contiguous L-second training sequences.
 
-Each 1 s step carries the 2 s IMU window ENDING at that step, the true 1 s
-displacement, and a motion class. Augmentation is applied per-window at train
+Each 1 s step carries the IMU window ENDING at that step (2 s for feature
+version 1, 20 s for version 2), the true 1 s displacement, and a motion class. Augmentation is applied per-window at train
 time so every epoch sees a different mount/bias/noise realisation.
 """
 from __future__ import annotations
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from model.features import window_features, WIN, HZ, C
+from model.features import WIN, HZ, spec
 from model.augment import augment
 
 STEP = int(HZ)          # 1 s
@@ -21,7 +21,7 @@ def _motion_class(speed, yawrate):
     return 2                                       # turning  (3=rough reserved)
 
 
-def _steps(drive):
+def _steps(drive, win=WIN):
     """Yield (win_start, step_lo, step_hi) for every valid 1 s step in a drive.
 
     The 2 s window ENDS at the step's end, so the last 1 s of the window IS the
@@ -34,18 +34,20 @@ def _steps(drive):
     training moves to match it.
     """
     n = len(drive)
-    for lo in range(WIN - STEP, n - STEP, STEP):   # step [lo, lo+STEP); window ends at lo+STEP
-        ws = lo + STEP - WIN                        # >= 0 since lo >= WIN - STEP
+    for lo in range(win - STEP, n - STEP, STEP):   # step [lo, lo+STEP); window ends at lo+STEP
+        ws = lo + STEP - win                        # >= 0 since lo >= win - STEP
         yield ws, lo, lo + STEP
 
 
 class SeqDataset(Dataset):
-    def __init__(self, drives, seed=0, augment_data=True):
+    def __init__(self, drives, seed=0, augment_data=True, feat=1, win=None):
         self.aug = augment_data
         self.rng = np.random.default_rng(seed)
+        self.feat, self.C, self.win = spec(feat, win)
+        self.batched = feat != 1     # v2+ features take a (L, T, 3) stack in one call
         self.items = []              # each: (drive, [(ws, lo, hi), ...L])
         for d in drives:
-            steps = list(_steps(d))
+            steps = list(_steps(d, self.win))
             for i in range(0, len(steps) - L, L // 2):     # 50% overlap
                 self.items.append((d, steps[i:i + L]))
 
@@ -54,13 +56,15 @@ class SeqDataset(Dataset):
     def __getitem__(self, idx):
         d, steps = self.items[idx]
         rng = np.random.default_rng(self.rng.integers(1 << 30))
-        X = np.empty((L, C, WIN), np.float32)
+        W = self.win
+        A = np.empty((L, W, 3), np.float32); G = np.empty((L, W, 3), np.float32)
         dt = np.empty(L, np.float32); cl = np.empty(L, np.int64)
         for j, (ws, lo, hi) in enumerate(steps):
-            acc = d.acc[ws:ws + WIN].copy(); gyro = d.gyro[ws:ws + WIN].copy()
+            acc = d.acc[ws:ws + W].copy(); gyro = d.gyro[ws:ws + W].copy()
             if self.aug:
                 acc, gyro = augment(acc, gyro, rng)
-            X[j] = window_features(acc, gyro)
+            A[j], G[j] = acc, gyro
             dt[j] = np.trapezoid(d.speed[lo:hi], d.t[lo:hi])       # true 1 s displacement
             cl[j] = _motion_class(d.speed[lo:hi].mean(), d.gyro_z[lo:hi].mean())
+        X = self.feat(A, G) if self.batched else np.stack([self.feat(a, g) for a, g in zip(A, G)])
         return torch.from_numpy(X), torch.from_numpy(dt), torch.from_numpy(cl)

@@ -12,7 +12,8 @@ import kotlin.math.exp
  * running under ONNX Runtime Mobile. Phase 2's stated deliverable was "run on
  * device via onnxruntime"; this is that path.
  *
- * One 1 s step at a time: feed the 2 s (20-sample, 10 Hz) IMU window ending now,
+ * One 1 s step at a time: feed the profile's IMU window ending now (2 s for feature
+ * version 1, 20 s for version 2; 10 Hz),
  * read the displacement head (mu = metres over 1 s = speed in m/s) and its
  * log-variance, then apply the checkpoint's calibration (from its SpeedProfile). Returns the same
  * (v, sigma) that py/model/nn_model.predict_steps produces -- verified equal on
@@ -21,11 +22,11 @@ import kotlin.math.exp
 class SpeedNet private constructor(modelBytes: ByteArray, private val profile: SpeedProfile) : AutoCloseable {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private val session: OrtSession = env.createSession(modelBytes, OrtSession.SessionOptions())
-    private val shape = longArrayOf(1L, Features.C.toLong(), Features.WIN.toLong())
+    private val shape = longArrayOf(1L, Features.channels(profile.featVersion).toLong(), profile.win.toLong())
 
     /** @return [v (m/s), sigma (m/s)] for the window; sigma is the fusable heteroscedastic uncertainty. */
     fun predict(acc: Array<DoubleArray>, gyro: Array<DoubleArray>): DoubleArray {
-        val feat = Features.windowFeatures(acc, gyro)          // FloatArray(9*20), channel-major
+        val feat = Features.features(profile.featVersion, acc, gyro)   // FloatArray(C*win), channel-major
         OnnxTensor.createTensor(env, FloatBuffer.wrap(feat), shape).use { input ->
             session.run(mapOf("imu" to input)).use { res ->
                 val out = HashMap<String, Any>()

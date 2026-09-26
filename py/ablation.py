@@ -43,7 +43,9 @@ def factory(stage, head, roads, net=None):
     }[stage]
 
 
-def run_set(which, stages, data, roads):
+def run_set(which, stages, data, roads, oof=None, speednet=None, head_path=None):
+    """oof: dir of nn_oof_*/fusion_head_oof_* (lodo; default model/oof). speednet / head_path:
+    the val-set SpeedNet checkpoint and fusion head (default: the shipped profile's)."""
     from data.iovnbd_sync import load_sync_dir
     from model.train_real import split_drives
     from model.fusion_head import load_head
@@ -51,12 +53,14 @@ def run_set(which, stages, data, roads):
     raw = {}
     for s in stages:
         if which == "val":
-            head = load_head(os.path.join(HERE, "model", "fusion_head.pt"))
-            raw[s] = live(split["val"], factory(s, head, roads), raw=True)
+            from edge_engine import TorchSpeedNet
+            head = load_head(head_path or os.path.join(HERE, "model", "fusion_head.pt"))
+            net = TorchSpeedNet(speednet) if speednet else None
+            raw[s] = live(split["val"], factory(s, head, roads, net), raw=True)
         else:
             from model.fusion_head import FOLDS
             from edge_engine import TorchSpeedNet
-            oof = os.path.join(HERE, "model", "oof")
+            oof = oof or os.path.join(HERE, "model", "oof")
             fold_of = lambda d: [k for k, rx in FOLDS.items() if re.search(rx, d.vehicle_id.split("#")[0])][0]
             per = {D: [] for D in DURATIONS}
             for fk in FOLDS:
@@ -149,6 +153,9 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--merge", nargs="+", help="partial result jsons of one set -> --out")
     ap.add_argument("--report", nargs="+", help="result jsons -> ablation.md + ablation.png next to the first")
+    ap.add_argument("--oof", help="lodo: dir with nn_oof_*.pt + fusion_head_oof_*.pt (default model/oof)")
+    ap.add_argument("--speednet", help="val: SpeedNet checkpoint (default: the shipped profile's ONNX)")
+    ap.add_argument("--head", help="val: fusion head checkpoint (default model/fusion_head.pt)")
     a = ap.parse_args()
     if a.report:
         return report(a.report, os.path.dirname(os.path.abspath(a.report[0])))
@@ -161,7 +168,7 @@ def main():
         return print("merged ->", a.out, list(raw))
     from osm_layers import read_roads_bin
     roads = read_roads_bin(ROADS, with_class=True)
-    raw = run_set(a.set, a.stages.split(","), a.data, roads)
+    raw = run_set(a.set, a.stages.split(","), a.data, roads, a.oof, a.speednet, a.head)
     title = {"val": "Validation drives (2 drives, ~1 h)",
              "lodo": "Train drives, leave-one-drive-out (~9.5 h; every drive run with models that never saw it)"}[a.set]
     if a.out:

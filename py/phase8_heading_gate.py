@@ -54,7 +54,10 @@ def gate_a(seeds=(0, 1, 2), minutes=20, hz=100.0):
                 rig = synth_rig(minutes * 60, hz, seed=s, vehicle=veh)
                 imu, gn = _streams(rig, seed=s)
                 outs = [(a, a + 60.0) for a in np.arange(120.0, minutes * 60 - 70, 180.0)]
-                o = run(EdgeEngine(vehicle=veh, yaw_mode=mode, head=None), imu, gn, outs)   # heading only
+                # heading only. nn_input="mean": this gate isolates the yaw modes; SpeedNet fed one raw
+                # sample misreads the rig's synthetic vibration (a physics model, not a phone), and the
+                # lean compensation's v then swamps the heading comparison (two-wheeler coord 5.3 -> 19 deg)
+                o = run(EdgeEngine(vehicle=veh, yaw_mode=mode, head=None, nn_input="mean"), imu, gn, outs)
                 for a, b in outs:
                     i = int(b * hz) - 1
                     errs.append(abs(np.degrees(HA.wrap(o[i, 3] - rig["heading"][i]))))

@@ -257,15 +257,16 @@ def fit(Ctr, Xtr, Ytr, Cva, Xva, Yva, epochs=40, lr=3e-3, hidden=32, seed=0, log
     return net, best, hist
 
 
-def build_tables(data, oof_dir=None):
-    """Per-second tables for train (in-sample or OOF SpeedNet) and val (the shipped nn_real)."""
+def build_tables(data, oof_dir=None, speednet=None):
+    """Per-second tables for train (in-sample or OOF SpeedNet) and val (the shipped nn_real,
+    or the checkpoint `speednet`)."""
     from data.iovnbd_sync import load_sync_dir
     from model.train_real import split_drives
     from model.nn_model import load_net, get_calib
     parts = split_drives(load_sync_dir(data, verbose=False))
-    real = os.path.join(os.path.dirname(__file__), "nn_real.pt")
+    real = speednet or os.path.join(os.path.dirname(__file__), "nn_real.pt")
     net, cal = load_net(real), get_calib(real)
-    folds = {"M": r"/S-M$", "S1": r"/S1/", "S2": r"/S2/", "S4": r"/S4/"}
+    folds = FOLDS
     tabs = {"train": [], "val": []}
     for d in parts["train"]:
         n_, c_ = net, cal
@@ -283,7 +284,7 @@ def build_tables(data, oof_dir=None):
 FOLDS = {"M": r"/S-M$", "S1": r"/S1/", "S2": r"/S2/", "S4": r"/S4/"}
 
 
-def cross_validate(data, oof_dir, epochs=40, hidden=32, seed=0, variants=("insample", "oof")):
+def cross_validate(data, oof_dir, epochs=40, hidden=32, seed=0, variants=("insample", "oof"), speednet=None):
     """Leave-one-TRAIN-drive-out CV to choose the epoch count and the SpeedNet input
     variant WITHOUT touching val or test. The held-out drive's inputs always come from
     its out-of-fold SpeedNet (a net that never saw it), i.e. it plays a new drive; the
@@ -293,7 +294,7 @@ def cross_validate(data, oof_dir, epochs=40, hidden=32, seed=0, variants=("insam
     from model.train_real import split_drives
     from model.nn_model import load_net, get_calib
     train = split_drives(load_sync_dir(data, verbose=False))["train"]
-    real = os.path.join(os.path.dirname(__file__), "nn_real.pt")
+    real = speednet or os.path.join(os.path.dirname(__file__), "nn_real.pt")
     fold_of = lambda d: [k for k, rx in FOLDS.items() if re.search(rx, d.vehicle_id.split("#")[0])][0]
     tabs = {"insample": [], "oof": []}
     for d in train:
@@ -357,16 +358,17 @@ def main():
     ap.add_argument("--fixed-epochs", type=int, help="train exactly this many epochs (chosen by --cv); val is then a check, not a selector")
     ap.add_argument("--ensemble", type=int, default=1, help="average this many seeds")
     ap.add_argument("--fold-heads", help="train one head per held-out train drive into this dir (needs --oof)")
+    ap.add_argument("--speednet", help="SpeedNet checkpoint for the val (and in-sample) tables (default model/nn_real.pt)")
     a = ap.parse_args()
     if a.fold_heads:
         return train_fold_heads(a.data, a.oof, a.fold_heads, a.fixed_epochs or 30, a.ensemble, a.hidden, a.seed)
     if a.cv:
-        curves = cross_validate(a.data, a.oof, a.epochs, a.hidden, a.seed)
+        curves = cross_validate(a.data, a.oof, a.epochs, a.hidden, a.seed, speednet=a.speednet)
         with open(a.out.replace(".pt", "_cv.json"), "w") as f:
             json.dump(curves, f, indent=2)
         return
     t0 = time.time()
-    tabs, parts = build_tables(a.data, a.oof)
+    tabs, parts = build_tables(a.data, a.oof, a.speednet)
     rng = np.random.default_rng(a.seed)
     Ctr, Xtr, Ytr = windows(tabs["train"], 5, rng)
     Cva, Xva, Yva = windows(tabs["val"], 15, rng)

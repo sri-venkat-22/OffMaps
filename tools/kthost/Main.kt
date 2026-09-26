@@ -8,6 +8,8 @@
 // With arg "head <weights.txt>": FusionHead.kt on an outage (see headMode).
 // With arg "aids": HeadingAids.kt / YawAlign lines (see aidsMode).
 // With arg "hmm <roads.txt>": RoadHmm.kt over a road network and a 1 Hz trajectory (see hmmMode).
+// With arg "feat <version>": stdin lines "ax ay az gx gy gz" (one leveled window);
+// stdout: Features.features(version, window), channel-major.
 package com.offmaps.nav
 
 import java.io.File
@@ -16,6 +18,14 @@ fun main(args: Array<String>) {
     if (args.isNotEmpty() && args[0] == "head") { headMode(args[1]); return }
     if (args.isNotEmpty() && args[0] == "aids") { aidsMode(); return }
     if (args.isNotEmpty() && args[0] == "hmm") { hmmMode(args[1]); return }
+    if (args.isNotEmpty() && args[0] == "feat") {
+        val rows = generateSequence(::readLine).filter { it.isNotBlank() }
+            .map { l -> l.trim().split(" ").map { it.toDouble() } }.toList()
+        val a = rows.map { doubleArrayOf(it[0], it[1], it[2]) }.toTypedArray()
+        val g = rows.map { doubleArrayOf(it[3], it[4], it[5]) }.toTypedArray()
+        println(Features.features(args[1].toInt(), a, g).joinToString(" ") { it.toString() })
+        return
+    }
     if (args.isNotEmpty() && args[0] == "decim") {           // stdin: sensor timestamps (ns); stdout: kept count
         val d = Decimator(100_000_000L)
         println(generateSequence(::readLine).filter { it.isNotBlank() }.count { d.accept(it.trim().toLong()) })

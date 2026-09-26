@@ -13,8 +13,14 @@ double clamp01(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 extern "C" {
 // trust in [0,1]. innov_chi2 is the GNSS-position innovation normalised by the
 // filter's predicted covariance (dimensionless); >~9 means INS disagrees badly.
+//
+// cn0_mean is the mean C/N0 of the satellites USED in the fix. The ramp is 17 -> 32
+// dB-Hz: a Redmi Note 9 Pro on a car mount reports 24-27 dB-Hz with 20+ satellites
+// and fixes that follow the road (first real drive, 2026-09-25), and the old 25 -> 40
+// ramp gave those fixes trust ~0, so the app dead-reckoned 82 % of the drive. Bad
+// fixes are still caught by the innovation term and the satellite count.
 double gq_trust(double cn0_mean, int sv_used, int navic_sv, double dop, double innov_chi2) {
-    double s_cn0 = clamp01((cn0_mean - 25.0) / (40.0 - 25.0));
+    double s_cn0 = clamp01((cn0_mean - 17.0) / (32.0 - 17.0));
     double s_sv  = clamp01((sv_used - 4.0) / (8.0 - 4.0));
     double s_dop = clamp01((6.0 - dop) / (6.0 - 1.0));
     double s_innov = std::exp(-innov_chi2 / 9.0);          // chi2 gate ~9 (3-sigma, 2 DoF)

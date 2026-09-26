@@ -45,7 +45,7 @@ import numpy as np
 import phase6_check as P
 import heading_aids as HA
 from core_bridge import Filter, SpeedCal, Align, gq_trust, gq_R, gq_spoof
-from model.features import window_features, WIN, HZ
+from model.features import HZ, spec
 from model.mount import leveled_basis, LEVEL_TAU_S, TAU_MED_S
 
 STEP_S = 1.0 / HZ              # 10 Hz alignment / NN grid
@@ -67,9 +67,11 @@ class OnnxSpeedNet:
         self.sess = ort.InferenceSession(os.path.join(P.ASSETS, prof["model"]), so,
                                          providers=["CPUExecutionProvider"])
         c = prof["calib"]; self.a, self.b, self.s = c["a"], c["b"], c["s"]
+        f = prof.get("feat") or {"version": 1}      # profiles before feature v2 carry none
+        self.feat_fn, _, self.win = spec(f["version"], f.get("win"))
 
     def predict(self, acc, gyro):
-        x = window_features(acc, gyro)[None]
+        x = self.feat_fn(acc, gyro)[None]
         mu, logvar = self.sess.run(["mu", "logvar"], {"imu": x})
         mu, sig = float(mu[0]), math.exp(0.5 * float(logvar[0]))
         return (mu - self.a) / self.b, max(sig / self.b * self.s, 1e-6)
@@ -84,9 +86,10 @@ class TorchSpeedNet:
         self.torch = torch
         self.net = load_net(ckpt); c = get_calib(ckpt)
         self.a, self.b, self.s = c["a"], c["b"], c["s"]
+        self.feat_fn, self.win = self.net.feat_fn, self.net.win
 
     def predict(self, acc, gyro):
-        x = self.torch.from_numpy(window_features(acc, gyro)[None])
+        x = self.torch.from_numpy(self.feat_fn(acc, gyro)[None])
         with self.torch.no_grad():
             mu, logvar, _, _ = self.net(x)
         mu, sig = float(mu[0]), math.exp(0.5 * float(logvar[0]))
@@ -97,7 +100,7 @@ class EdgeEngine:
     def __init__(self, profile=P.SHIPPED, head="profile", roads=None, map_mode="greedy",
                  vehicle="car", yaw_mode=None, declination_deg=0.0, mount_forward=None,
                  use_mag=True, speed_net=None, map_opts=None, zupt=None,
-                 head_handover=False, dr_speed=True):
+                 head_handover=False, dr_speed=True, nn_input="sample"):
         self.prof = P.load_profile(profile) if isinstance(profile, str) else profile
         self.cfg = self.prof["eskf"]
         from core_bridge import LIVE_DEFAULT
@@ -112,6 +115,8 @@ class EdgeEngine:
                                               live["fusion_head"].replace(".json", ".pt")))
         self.head = head                       # learned fusion head (model/fusion_head.py) or None
         self.head_handover = head_handover     # hold the entry speed for handover_s before the head takes over
+        self.nn_input = nn_input               # "sample": SpeedNet sees one raw sample per 10 Hz step (the phone's
+                                               # Decimator); "mean": the step's mean (see _step10)
         self.dr_speed = dr_speed               # False: no speed updates while dead-reckoning (entry speed held;
                                                # the no-AI "physics" stage of ablation.py)
         self.roads_ll = roads                  # [(lat[], lon[], tunnel, oneway[, highway])] or None
@@ -213,11 +218,18 @@ class EdgeEngine:
         if t - self.t_step >= STEP_S - 1e-3 - 0.25 * min(dt, STEP_S):
             m = [x / self.bin_n for x in b]
             self.bin = [0.0] * 6; self.bin_n = 0
-            self._step10(t, t - self.t_step, m[:3], m[3:])
+            raw = self.nn_input == "sample"
+            self._step10(t, t - self.t_step, m[:3], m[3:], nn_a=a if raw else None, nn_w=w if raw else None)
             self.t_step = t
 
-    def _step10(self, t, dt, a, w):
-        """The phone's 10 Hz step (FusionEngine.onImu after the decimator)."""
+    def _step10(self, t, dt, a, w, nn_a=None, nn_w=None):
+        """The phone's 10 Hz step (FusionEngine.onImu after the decimator).
+
+        a, w (the mean of the step's samples) drive alignment and leveling. SpeedNet's
+        window gets nn_a, nn_w instead: ONE raw sample per step, as the phone's
+        Decimator keeps and as the 10 Hz IO-VNBD logs it was trained on hold. The mean
+        of a 400 Hz step low-passes away the vibration SpeedNet reads speed from (on a
+        real Redmi drive it read ~0 m/s at every speed). None = the mean (10 Hz input)."""
         self.aln.update(a[0], a[1], a[2], w[0], w[1], w[2], dt)
         remount = self.aln.get()[3]
         # Level.kt: slow (30 s) + medium (5 s) gravity, snap on re-mount
@@ -232,8 +244,10 @@ class EdgeEngine:
         R = leveled_basis(self.lvl_g); self.basis = R
         al = R @ a; wl = R @ w; wl[2] *= HA.YAW_SIGN
         self.ya.add_acc(al[0], al[1])
+        if nn_a is not None:
+            al = R @ np.asarray(nn_a, float); wl = R @ np.asarray(nn_w, float); wl[2] *= HA.YAW_SIGN
         self.ring_a.append(al); self.ring_g.append(wl)
-        if len(self.ring_a) > WIN:
+        if len(self.ring_a) > self.net.win:
             self.ring_a.pop(0); self.ring_g.pop(0)
         if not self.init:
             return
@@ -245,7 +259,7 @@ class EdgeEngine:
             if self.head is not None:
                 self.head_state = self.head.start(self._head_context())
         self.steps_nn += 1
-        if self.steps_nn >= NN_EVERY and len(self.ring_a) >= WIN:
+        if self.steps_nn >= NN_EVERY and len(self.ring_a) >= self.net.win:
             self.steps_nn = 0
             self.vnn_raw, self.sig = self.net.predict(np.array(self.ring_a), np.array(self.ring_g))
             g1 = np.array(self.ring_g[-NN_EVERY:])

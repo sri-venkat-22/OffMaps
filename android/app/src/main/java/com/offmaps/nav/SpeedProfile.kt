@@ -39,6 +39,9 @@ data class SpeedProfile(
     val mmHmm: Boolean = false,            // HMM road matcher (RoadHmm, Phase 9); takes precedence over the two above
     val zuptStrict: Boolean = false,       // strict stop detector -> ZUPT while dead-reckoning
     val fusionHead: String? = null,        // learned fusion head asset (FusionHeadAsset) or none
+    // ---- "feat" block (the net's input contract; absent -> version 1, 2 s) ----
+    val featVersion: Int = 1,              // Features.features version the net was trained on
+    val win: Int = Features.WIN,           // window in 10 Hz samples (<= Features.MAX_WIN)
 ) {
     companion object {
         /**
@@ -66,6 +69,10 @@ data class SpeedProfile(
                 mmHeadingSigmaDeg = e.optDouble("mm_heading_sigma_deg", 3.0),
                 mmKeepSpeed = e.optBoolean("mm_keep_speed", false),
             ).let { p ->
+                val f = j.optJSONObject("feat") ?: return@let p
+                val v = f.optInt("version", 1)
+                p.copy(featVersion = v, win = f.optInt("win", if (v == 1) Features.WIN else Features.WIN2))
+            }.let { p ->
                 val l = j.optJSONObject("live") ?: return@let p
                 p.copy(
                     yawMode = l.optString("yaw_mode", p.yawMode),
