@@ -67,6 +67,7 @@ object IdrNative {
     external fun vibCreate(hz: Double): Long
     external fun vibDestroy(h: Long)
     external fun vibSetParams(h: Long, shockK: Double, refractoryS: Double, hpFc: Double, emaTau: Double)
+    external fun vibSetShockFilter(h: Long, minPeak: Double, gapS: Double)
     external fun vibPush(h: Long, ax: Double, ay: Double, az: Double, dt: Double): Int
     external fun vibWindow(h: Long): DoubleArray      // [rms_clean, rms_raw, shock_frac, n_events]
 
@@ -179,7 +180,9 @@ class Vib(hz: Double) : AutoCloseable {
     private val h = IdrNative.vibCreate(hz)
     fun setParams(shockK: Double = 0.0, refractoryS: Double = 0.0, hpFc: Double = 0.0, emaTau: Double = 0.0) =
         IdrNative.vibSetParams(h, shockK, refractoryS, hpFc, emaTau)
-    /** @return true on the leading edge of a shock (pothole / bump). */
+    /** Road-hazard filter: an event needs a vertical jolt >= minPeak (m/s^2) and gapS since the last. */
+    fun setShockFilter(minPeak: Double, gapS: Double) = IdrNative.vibSetShockFilter(h, minPeak, gapS)
+    /** @return true when a shock event (pothole / bump) fires. */
     fun push(ax: Double, ay: Double, az: Double, dt: Double) = IdrNative.vibPush(h, ax, ay, az, dt) != 0
     /** [rms_clean (pothole-rejected), rms_raw, shock_frac, n_events] since the last call. */
     fun window(): DoubleArray = IdrNative.vibWindow(h)

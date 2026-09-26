@@ -1,6 +1,8 @@
 package com.offmaps.nav
 
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -134,4 +136,17 @@ object Features {
         return doubleArrayOf(v, sig)
     }
 
+    /**
+     * p(stopped) from the motion-class logits (model/pstop.py): the log-odds of class 0
+     * (stopped) against the rest, Platt-scaled, p = sigmoid(a*z + b). NaN if a is NaN.
+     */
+    fun pStop(cls: FloatArray, a: Double, b: Double): Double {
+        if (a.isNaN() || b.isNaN()) return Double.NaN
+        var m = Double.NEGATIVE_INFINITY
+        for (i in 1 until cls.size) m = max(m, cls[i].toDouble())
+        var sum = 0.0
+        for (i in 1 until cls.size) sum += exp(cls[i] - m)
+        val z = cls[0] - (m + ln(sum))
+        return 1.0 / (1.0 + exp(-(a * z + b)))
+    }
 }

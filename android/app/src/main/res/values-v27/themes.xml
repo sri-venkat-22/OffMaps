@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="icon_bg">#FFFFFF</color>
-    <color name="bg">#F3F1ED</color>
-    <color name="bars">#FFFFFF</color>
-
-    <!-- Light, full-bleed nav screen: no action bar, white system bars with dark icons. -->
+    <!-- API 27+: dark navigation-bar icons on the white bar. -->
     <style name="Theme.OffMaps" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bars</item>
         <item name="android:navigationBarColor">@color/bars</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="colorAccent">#1A73E8</item>
     </style>
 </resources>

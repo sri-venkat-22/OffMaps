@@ -170,10 +170,10 @@ function drawRoads() {
     el("path", { d: d.join(""), class: "rd", stroke: css("--r-casing"), "stroke-width": s.w + s.casing }, g);
   for (const { s, d } of paths) if (d.length)
     el("path", { d: d.join(""), class: "rd", stroke: css(s.fill), "stroke-width": s.w }, g);
-  // tunnels, the Ordnance Survey way: dashed casing, pale fill, drawn over the roads they pass under
+  // tunnels: dashed casing, land-coloured fill, drawn over the roads they pass under
   for (const { s, t } of paths) if (t.length) {
-    el("path", { d: t.join(""), class: "rd", stroke: css("--ink"), "stroke-width": s.w + 3, "stroke-dasharray": "6 4", "stroke-opacity": 0.55 }, g);
-    el("path", { d: t.join(""), class: "rd", stroke: css("--paper-2"), "stroke-width": s.w }, g);
+    el("path", { d: t.join(""), class: "rd", stroke: css("--faint"), "stroke-width": s.w + 3, "stroke-dasharray": "6 4", "stroke-opacity": 0.8 }, g);
+    el("path", { d: t.join(""), class: "rd", stroke: css("--land"), "stroke-width": s.w }, g);
   }
 }
 
@@ -210,20 +210,22 @@ function draw() {
   if (!st.hidden.has("map")) {
     const m = o.stages.map;
     for (let i = o.d0; i <= Math.min(k, o.d1); i++) if (m.snap[i])
-      el("circle", { cx: m.P[i][0], cy: m.P[i][1], r: 2.6 * mpp, fill: css("--paper"), stroke: css("--s-map"), "stroke-width": 1.4, "vector-effect": "non-scaling-stroke" }, snaps);
+      el("circle", { cx: m.P[i][0], cy: m.P[i][1], r: 2.4 * mpp, fill: "#fff", stroke: css("--s-map"), "stroke-width": 1.2, "vector-effect": "non-scaling-stroke" }, snaps);
+    // accuracy circle: the filter's own 1-sigma position uncertainty, as Google Maps draws it
     const [x, y] = m.P[k];
-    el("circle", { cx: x, cy: y, r: Math.max(m.sigma[k], 3 * mpp), fill: css("--s-map"), "fill-opacity": 0.08,
-                   stroke: css("--s-map"), "stroke-width": 1.4, "stroke-dasharray": "4 3", "vector-effect": "non-scaling-stroke" }, ring);
+    el("circle", { cx: x, cy: y, r: Math.max(m.sigma[k], 3 * mpp), fill: css("--puck"), "fill-opacity": 0.15,
+                   stroke: css("--puck"), "stroke-opacity": 0.4, "stroke-width": 1, "vector-effect": "non-scaling-stroke" }, ring);
   }
   if (!st.hidden.has("truth")) {
     const [tx, ty] = o.T[k];
-    el("circle", { cx: tx, cy: ty, r: 5.5 * mpp, fill: css("--paper"), stroke: css("--truth"), "stroke-width": 2.2, "vector-effect": "non-scaling-stroke" }, dots);
+    el("circle", { cx: tx, cy: ty, r: 5.5 * mpp, fill: "#fff", stroke: css("--truth"), "stroke-width": 2.2, "vector-effect": "non-scaling-stroke" }, dots);
   }
   for (const s of st.meta.stages) {
-    if (st.hidden.has(s)) continue;
+    if (st.hidden.has(s) || s === "map") continue;
     const [x, y] = o.stages[s].P[k];
-    el("circle", { cx: x, cy: y, r: (s === "map" ? 5.5 : 4.2) * mpp, fill: css(STAGE_VAR[s]), stroke: css("--paper"), "stroke-width": 1.6, "vector-effect": "non-scaling-stroke" }, dots);
+    el("circle", { cx: x, cy: y, r: 4.5 * mpp, fill: css(STAGE_VAR[s]), stroke: "#fff", "stroke-width": 1.8, "vector-effect": "non-scaling-stroke" }, dots);
   }
+  if (!st.hidden.has("map")) puck(dots, o.stages.map.P, k, mpp);
 
   // clock
   const hz = o.hz;
@@ -250,6 +252,26 @@ function draw() {
     row.querySelector(".bar i").style.width = `${Math.min(100, (pct / 40) * 100)}%`;
   }
   $("scrub").value = k;
+}
+
+// "You are here" for the shipped app: blue dot in a white ring, heading beam, soft shadow.
+function puck(g, P, k, mpp) {
+  const [x, y] = P[k];
+  let hd = null;                                       // heading from the last ~2 m of the estimate
+  for (let j = k - 1; j >= Math.max(0, k - 40); j--) {
+    const dx = x - P[j][0], dy = y - P[j][1];
+    if (Math.hypot(dx, dy) > 2) { hd = (Math.atan2(dx, -dy) * 180) / Math.PI; break; }
+  }
+  if (hd !== null) {
+    const R = 46 * mpp, a = (35 * Math.PI) / 180;
+    const grad = $("beamgrad");
+    grad.setAttribute("cx", x); grad.setAttribute("cy", y); grad.setAttribute("r", R);
+    el("path", { d: `M${x} ${y}L${x - R * Math.sin(a)} ${y - R * Math.cos(a)}A${R} ${R} 0 0 1 ${x + R * Math.sin(a)} ${y - R * Math.cos(a)}Z`,
+                 fill: "url(#beamgrad)", transform: `rotate(${hd.toFixed(1)} ${x} ${y})` }, g);
+  }
+  $("puckshadowfx").setAttribute("stdDeviation", 1.5 * mpp); $("puckshadowfx").setAttribute("dy", mpp);
+  el("circle", { cx: x, cy: y, r: 8.5 * mpp, fill: "#fff", filter: "url(#puckshadow)" }, g);
+  el("circle", { cx: x, cy: y, r: 6 * mpp, fill: css("--puck") }, g);
 }
 
 // ---------- playback ----------
@@ -332,6 +354,9 @@ function wire() {
   $("scrub").addEventListener("input", (e) => { play(false); st.k = +e.target.value; st.t = st.k / st.cur.hz; draw(); });
   new ResizeObserver(() => { if (st.cur) { layout(); draw(); } }).observe($("map"));
 }
+
+// offline + installable (sw.js); not from file://, where service workers do not run
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 
 load().then(async () => { st.meta = st.data.iovnbd.meta; buildLegend(); buildBars(); wire(); await selectScenario("iovnbd"); })
   .catch((e) => { $("which").textContent = `Could not load the replay data (${e.message}). Serve docs/ over HTTP, e.g. python3 -m http.server -d docs.`; });

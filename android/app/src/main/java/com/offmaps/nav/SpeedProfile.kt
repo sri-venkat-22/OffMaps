@@ -42,6 +42,9 @@ data class SpeedProfile(
     // ---- "feat" block (the net's input contract; absent -> version 1, 2 s) ----
     val featVersion: Int = 1,              // Features.features version the net was trained on
     val win: Int = Features.WIN,           // window in 10 Hz samples (<= Features.MAX_WIN)
+    // ---- "pstop" block: p(stopped) calibration of the motion-class head (model/pstop.py); absent -> NaN ----
+    val pstopA: Double = Double.NaN,
+    val pstopB: Double = Double.NaN,
 ) {
     companion object {
         /**
@@ -69,6 +72,9 @@ data class SpeedProfile(
                 mmHeadingSigmaDeg = e.optDouble("mm_heading_sigma_deg", 3.0),
                 mmKeepSpeed = e.optBoolean("mm_keep_speed", false),
             ).let { p ->
+                val s = j.optJSONObject("pstop") ?: return@let p
+                p.copy(pstopA = s.getDouble("a"), pstopB = s.getDouble("b"))
+            }.let { p ->
                 val f = j.optJSONObject("feat") ?: return@let p
                 val v = f.optInt("version", 1)
                 p.copy(featVersion = v, win = f.optInt("win", if (v == 1) Features.WIN else Features.WIN2))

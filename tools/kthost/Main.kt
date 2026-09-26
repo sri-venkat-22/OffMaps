@@ -8,6 +8,7 @@
 // With arg "head <weights.txt>": FusionHead.kt on an outage (see headMode).
 // With arg "aids": HeadingAids.kt / YawAlign lines (see aidsMode).
 // With arg "hmm <roads.txt>": RoadHmm.kt over a road network and a 1 Hz trajectory (see hmmMode).
+// With arg "pstop <a> <b>": stdin lines of 4 motion-class logits; stdout: Features.pStop per line.
 // With arg "feat <version>": stdin lines "ax ay az gx gy gz" (one leveled window);
 // stdout: Features.features(version, window), channel-major.
 package com.offmaps.nav
@@ -24,6 +25,13 @@ fun main(args: Array<String>) {
         val a = rows.map { doubleArrayOf(it[0], it[1], it[2]) }.toTypedArray()
         val g = rows.map { doubleArrayOf(it[3], it[4], it[5]) }.toTypedArray()
         println(Features.features(args[1].toInt(), a, g).joinToString(" ") { it.toString() })
+        return
+    }
+    if (args.isNotEmpty() && args[0] == "pstop") {          // stdin: 4 class logits per line; stdout: p(stopped)
+        val a = args[1].toDouble(); val b = args[2].toDouble()
+        generateSequence(::readLine).filter { it.isNotBlank() }.forEach { l ->
+            println(Features.pStop(l.trim().split(" ").map { it.toFloat() }.toFloatArray(), a, b))
+        }
         return
     }
     if (args.isNotEmpty() && args[0] == "decim") {           // stdin: sensor timestamps (ns); stdout: kept count

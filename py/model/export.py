@@ -13,7 +13,7 @@ the torch outputs (mu/logvar/slip/cls) to <1e-4 -- so the deployed net IS the
 gated net, not a lookalike. train.py calls export_onnx() at the end of training.
 
 --profile also writes <onnx stem>.profile.json beside the graph: the checkpoint's
-speed calibration (a,b,s) and its fully resolved fusion settings (core_bridge.
+speed calibration (a,b,s), its p(stopped) calibration (model/pstop.py), and its fully resolved fusion settings (core_bridge.
 ESKF_DEFAULT overridden by the checkpoint's eskf_cfg -- exactly what
 core_bridge.eskf_config gives the harness). The phone (SpeedNet.kt/FusionEngine.kt)
 and its host mirror (phase6_check.py) both read that file, so the calibration and
@@ -87,9 +87,21 @@ def build_profile(ckpt_path, onnx_path):
         "onnx_sha256": sha,
         "calib": {k: float(calib[k]) for k in ("a", "b", "s")},
         "feat": ckpt.get("feat") or {"version": 1, "win": 20},
+        "pstop": _pstop(ckpt_path),
         "eskf": {**ESKF_DEFAULT, **(ckpt.get("eskf_cfg") or {})},
         "live": {**LIVE_DEFAULT, **(ckpt.get("live_cfg") or {})},
     }
+
+
+def _pstop(ckpt_path):
+    """p(stopped) calibration (a, b) from model/pstop.py's sidecar, or None if never fit."""
+    from model.pstop import sidecar_path
+    p = sidecar_path(ckpt_path)
+    if not os.path.exists(p):
+        return None
+    with open(p) as fh:
+        c = json.load(fh)
+    return {"a": float(c["a"]), "b": float(c["b"])}
 
 
 def write_profile(ckpt_path, onnx_path):

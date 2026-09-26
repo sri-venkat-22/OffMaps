@@ -1,6 +1,14 @@
 package com.offmaps.nav
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.RectF
+import android.graphics.Shader
 import android.view.Gravity
 import android.os.SystemClock
 import org.maplibre.android.camera.CameraPosition
@@ -9,24 +17,33 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression.color
 import org.maplibre.android.style.expressions.Expression.eq
-import org.maplibre.android.style.expressions.Expression.switchCase
-import org.maplibre.android.style.expressions.Expression.geometryType
+import org.maplibre.android.style.expressions.Expression.exponential
 import org.maplibre.android.style.expressions.Expression.get
+import org.maplibre.android.style.expressions.Expression.interpolate
 import org.maplibre.android.style.expressions.Expression.literal
+import org.maplibre.android.style.expressions.Expression.product
+import org.maplibre.android.style.expressions.Expression.stop
+import org.maplibre.android.style.expressions.Expression.zoom
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.layers.PropertyFactory.circleBlur
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
+import org.maplibre.android.style.layers.PropertyFactory.circlePitchAlignment
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconPitchAlignment
+import org.maplibre.android.style.layers.PropertyFactory.iconRotate
+import org.maplibre.android.style.layers.PropertyFactory.iconRotationAlignment
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
-import org.maplibre.android.style.layers.PropertyFactory.lineBlur
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
@@ -37,19 +54,20 @@ import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import java.io.File
 import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * The offline map. MapLibre renders the bundled Hyderabad vector tiles
  * (assets/map/tiles.mbtiles, from tools/build_map.sh) with assets/map/style.json,
  * and the live tracks are drawn on top -- the same three stories TrackView told on
  * a blank canvas, now on real streets:
- *   light grey = GNSS fixes (keeps logging during a simulated outage),
- *   blue       = fused ESKF estimate,
- *   amber      = fused estimate while dead-reckoning (outage),
- * plus a glowing position puck (cyan, amber while dead-reckoning) with a heading
- * tick, over a night-style basemap. The camera follows the car until the user
- * pans; [follow] re-arms it. Colours come from [Ui].
+ *   grey  = GNSS fixes (keeps logging during a simulated outage),
+ *   blue  = fused ESKF estimate,
+ *   amber = fused estimate while dead-reckoning (outage),
+ * over a daytime basemap. "You are here" is drawn the way Google Maps draws it: a
+ * blue dot in a white ring, a fading beam along the heading, and a pale accuracy
+ * circle -- here the filter's own 1-sigma position uncertainty, so it visibly
+ * grows while dead-reckoning and shrinks when GNSS returns. The camera follows
+ * the car until the user pans; [follow] re-arms it. Colours come from [Ui].
  *
  * Main thread only.
  */
@@ -69,6 +87,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
     private val shocks = ArrayList<Point>()                 // pothole / bump markers (Phase 7c)
     private var pos: Point? = null
     private var psi = 0.0
+    private var sigma = 0.0
 
     /** tiles = the mbtiles file on disk, or null to draw tracks over a blank background. */
     fun load(tiles: File?, onReady: () -> Unit = {}) {
@@ -100,7 +119,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         val base = ctx.assets.open(STYLE_ASSET).bufferedReader().use { it.readText() }
         if (tiles != null) return base.replace("{MBTILES}", "mbtiles://" + tiles.absolutePath)
         // no basemap shipped: keep only the background layer so the tracks still draw
-        return """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#0E1626"}}]}"""
+        return """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#F3F1ED"}}]}"""
     }
 
     private fun addOverlays(s: Style) {
@@ -108,15 +127,15 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         s.addSource(GeoJsonSource(SRC_FUSED))
         s.addSource(GeoJsonSource(SRC_POS))
         s.addSource(GeoJsonSource(SRC_SHOCK))
+        s.addImage(IMG_BEAM, beamBitmap())
+        s.addImage(IMG_DOT, dotBitmap())
         val round = arrayOf(lineJoin(Property.LINE_JOIN_ROUND), lineCap(Property.LINE_CAP_ROUND))
         val isDr = eq(get("dr"), literal(true))
-        val modeColor = switchCase(isDr, color(Ui.DR), color(Ui.ACCENT))
         s.addLayer(LineLayer("gnss-line", SRC_GNSS).withProperties(
-            lineColor(Ui.GNSS), lineWidth(3f), lineOpacity(0.75f), *round))
-        // fused track: a soft glow under a crisp line, blue on GNSS, amber while dead-reckoning
-        s.addLayer(LineLayer("fused-glow", SRC_FUSED).withProperties(
-            lineColor(switchCase(isDr, color(Ui.DR), color(Ui.FUSED))),
-            lineWidth(14f), lineOpacity(0.28f), lineBlur(6f), *round))
+            lineColor(Ui.GNSS), lineWidth(3f), lineOpacity(0.9f), *round))
+        // fused track: a white casing under the line, like a route on a light map
+        s.addLayer(LineLayer("fused-casing", SRC_FUSED).withProperties(
+            lineColor(Color.WHITE), lineWidth(8f), *round))
         s.addLayer(LineLayer("fused-line", SRC_FUSED).withProperties(
             lineColor(Ui.FUSED), lineWidth(5f), *round)
             .withFilter(eq(get("dr"), literal(false))))
@@ -124,18 +143,56 @@ class NavMap(private val ctx: Context, private val view: MapView) {
             lineColor(Ui.DR), lineWidth(5f), *round)
             .withFilter(isDr))
         s.addLayer(CircleLayer("shock-dot", SRC_SHOCK).withProperties(      // potholes / bumps (Phase 7c)
-            circleRadius(6f), circleColor(Ui.SHOCK),
-            circleStrokeColor(Ui.BG), circleStrokeWidth(2f)))
-        val isPoint = eq(geometryType(), literal("Point"))
-        s.addLayer(CircleLayer("pos-halo", SRC_POS).withProperties(
-            circleRadius(26f), circleColor(modeColor), circleOpacity(0.22f), circleBlur(0.6f))
-            .withFilter(isPoint))
-        s.addLayer(LineLayer("pos-heading", SRC_POS).withProperties(
-            lineColor(modeColor), lineWidth(4f), lineCap(Property.LINE_CAP_ROUND)))
-        s.addLayer(CircleLayer("pos-dot", SRC_POS).withProperties(
-            circleRadius(9f), circleColor(modeColor),
-            circleStrokeColor(Ui.TEXT), circleStrokeWidth(3f))
-            .withFilter(isPoint))
+            circleRadius(5f), circleColor(Ui.SHOCK),
+            circleStrokeColor(Color.WHITE), circleStrokeWidth(2f)))
+        // you are here: accuracy circle (metres -> px at every zoom), heading beam, dot
+        s.addLayer(CircleLayer("pos-accuracy", SRC_POS).withProperties(
+            circleRadius(interpolate(exponential(2), zoom(),
+                stop(0, get("r0")), stop(22, product(literal(Z22), get("r0"))))),
+            circleColor(Ui.PUCK), circleOpacity(0.15f),
+            circleStrokeColor(Ui.PUCK), circleStrokeOpacity(0.35f), circleStrokeWidth(1f),
+            circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)))
+        s.addLayer(SymbolLayer("pos-beam", SRC_POS).withProperties(
+            iconImage(IMG_BEAM), iconRotate(get("bearing")),
+            iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
+            iconAllowOverlap(true), iconIgnorePlacement(true)))
+        s.addLayer(SymbolLayer("pos-dot", SRC_POS).withProperties(
+            iconImage(IMG_DOT), iconAllowOverlap(true), iconIgnorePlacement(true)))
+    }
+
+    /** Heading beam: a 70 degree fan pointing up, fading out from the dot. */
+    private fun beamBitmap(): Bitmap {
+        val d = ctx.resources.displayMetrics.density
+        val r = BEAM_DP * d
+        val bmp = Bitmap.createBitmap((2 * r).toInt(), (2 * r).toInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp); val cx = r; val cy = r
+        val rgb = Ui.PUCK and 0x00FFFFFF
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(cx, cy, r, intArrayOf(rgb or 0x8C000000.toInt(), rgb or 0x40000000, rgb),
+                                    floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+        }
+        val path = Path().apply {
+            moveTo(cx, cy)
+            arcTo(RectF(cx - r, cy - r, cx + r, cy + r), -90f - BEAM_DEG / 2, BEAM_DEG)
+            close()
+        }
+        c.drawPath(path, paint)
+        return bmp
+    }
+
+    /** The dot: blue in a white ring, with a soft shadow. */
+    private fun dotBitmap(): Bitmap {
+        val d = ctx.resources.displayMetrics.density
+        val rOut = 11f * d; val rIn = 8f * d; val pad = 4f * d
+        val size = (2 * (rOut + pad)).toInt()
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp); val cx = size / 2f
+        c.drawCircle(cx, cx, rOut, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; setShadowLayer(3f * d, 0f, 1f * d, 0x55000000)
+        })
+        c.drawCircle(cx, cx, rIn, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.PUCK })
+        return bmp
     }
 
     /** Keep the attribution and the followed car clear of the header and bottom sheet. */
@@ -164,7 +221,7 @@ class NavMap(private val ctx: Context, private val view: MapView) {
 
     fun update(s: NavState) {
         val p = Point.fromLngLat(s.lon, s.lat)
-        pos = p; psi = s.psi; dr = s.outageActive
+        pos = p; psi = s.psi; dr = s.outageActive; sigma = s.posSigma
         val run = runs.lastOrNull()
         if (run == null || run.first != s.outageActive) {
             // new run starts at the previous run's last point so the line stays continuous
@@ -216,13 +273,13 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         val st = style ?: return
         val p = pos
         val fc = if (p == null) FeatureCollection.fromFeatures(emptyList()) else {
-            // heading tick: HEADING_M ahead along psi (0 = north, +east), in local metres
-            val dLat = HEADING_M * cos(psi) / M_PER_DEG
-            val dLon = HEADING_M * sin(psi) / (M_PER_DEG * cos(Math.toRadians(p.latitude())))
-            val tip = Point.fromLngLat(p.longitude() + dLon, p.latitude() + dLat)
-            FeatureCollection.fromFeatures(listOf(
-                Feature.fromGeometry(LineString.fromLngLats(listOf(p, tip))),
-                Feature.fromGeometry(p)).onEach { it.addBooleanProperty("dr", dr) })
+            // accuracy radius in map px at zoom 0 (512 px tiles); the layer scales it by 2^zoom
+            val mPerPx0 = 2 * Math.PI * WEB_MERCATOR_R * cos(Math.toRadians(p.latitude())) / 512.0
+            FeatureCollection.fromFeature(Feature.fromGeometry(p).also {
+                it.addNumberProperty("bearing", Math.toDegrees(psi))
+                it.addNumberProperty("r0", sigma.coerceIn(0.0, MAX_ACCURACY_M) / mPerPx0)
+                it.addBooleanProperty("dr", dr)
+            })
         }
         st.getSourceAs<GeoJsonSource>(SRC_POS)?.setGeoJson(fc)
     }
@@ -244,8 +301,13 @@ class NavMap(private val ctx: Context, private val view: MapView) {
         private const val SRC_SHOCK = "trk-shock"
         private const val CAP = 6000                 // points per track before halving
         private const val TRACK_PUSH_MS = 500L       // re-upload the long tracks at 2 Hz; the dot at 10 Hz
-        private const val HEADING_M = 25.0
-        private const val M_PER_DEG = Math.PI / 180.0 * Enu.R_EARTH
+        private const val IMG_BEAM = "puck-beam"
+        private const val IMG_DOT = "puck-dot"
+        private const val BEAM_DP = 56f              // beam length
+        private const val BEAM_DEG = 70f             // beam opening
+        private const val MAX_ACCURACY_M = 2000.0
+        private const val Z22 = 4194304.0            // 2^22: the accuracy circle's zoom-22 scale
+        private const val WEB_MERCATOR_R = 6378137.0
         private val HYDERABAD = LatLng(17.385, 78.4867)
 
         /**

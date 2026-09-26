@@ -23,7 +23,9 @@ returns. Everything runs offline, on the phone, with no extra hardware.
 | **Validated on** | real drives from [IO-VNBD](https://github.com/onyekpeu/IO-VNBD): ~14 h, phone IMU scored against the vehicle's survey GNSS, split by drive |
 | **Where it stands** | Median drift, % of distance, on train drives run with models that never saw them: **24.2 %** with no AI, **13.6 %** with SpeedNet + the fusion head, **11.7 %** with road matching as the app now ships. **16.4 %** on the held-out test drives (scored before road matching shipped). The PS target of **< 10 % is not reached yet** (§Results). |
 | **Watch it** | **[sri-venkat-22.github.io/OffMaps](https://sri-venkat-22.github.io/OffMaps/)**: replay any validation-drive outage on the real roads, all four stages side by side |
+| **Run it in a browser** | [the same page, "Run it in your browser"](https://sri-venkat-22.github.io/OffMaps/#live): load a phone recording, choose where GNSS drops, and the whole loop runs on your device in JavaScript. It installs as an offline app (§In the browser) |
 | **Try it** | `./run.sh` builds, tests and runs the demo (§Quick start) |
+| **Read more** | [`RESEARCH.md`](RESEARCH.md): the paper behind each design choice · [`LESSONS.md`](LESSONS.md): what we got wrong and how we found it |
 
 ## Results
 
@@ -145,6 +147,9 @@ Other measured properties (each one is produced by the script or pinned by the t
 | Heading, two-wheeler leaning up to 31° | 5.4° median error at outage end (14.3° without lean compensation) | `py/phase8_heading_gate.py` |
 | Parked start, no GNSS course | magnetometer heading seed, 17° median (82° without) | `py/phase8_heading_gate.py` |
 | C++ core vs Python reference | equal to 1e-9–1e-12 (parity tests) | `py/tests/` |
+| Browser engine (JavaScript) vs Python edge engine | an hour of real driving, 16 outages, all four stages: ≤ 0.2 mm apart; the same road snaps | `py/tests/test_web_engine.py` |
+| SpeedNet p(stopped), held-out outputs, cross-fitted by drive | AUC 0.98; calibration error 0.020 → 0.012 after Platt scaling | `py/model/pstop.py`, `out/pstop/pstop.json` |
+| Pothole marks on 8 real Redmi drives (37 km) | 1.7 per km (was 27.3); a 2 g pothole is always found | `py/tests/test_pothole_filter.py` |
 
 ## PS 26168: requirement by requirement
 
@@ -153,17 +158,17 @@ Other measured properties (each one is produced by the script or pinned by the t
 | # | The PS asks for | OffMaps | |
 |---|---|---|---|
 | 1 | Train and test on **IO-VNBD**, with position plots | Loader that fixes the dataset's quirks (unaligned phone/vehicle clocks, yaw gyro in the column labelled "Pitch", km/h that is m/s); drive-level train / val / test split; reports and plots | ✅ `REALDATA.md` |
-| 2 | **AI predicts vehicle speed** from phone accelerometer + gyro only | SpeedNet: TCN + GRU, speed + σ (+ motion class), trained on real drives, 620 KB ONNX; online Doppler self-calibration (Deming fit) | ✅ `py/model/`, `core/speed_cal.cpp`, `py/README_PHASE2.md` |
-| 3 | Filter **engine vibration, potholes, bumps** | 200–400 Hz shock detector + pothole-robust vibration RMS in the core | ✅ `core/vib.cpp`, `py/phase7c_gate.py` |
+| 2 | **AI predicts vehicle speed** from phone accelerometer + gyro only | SpeedNet: TCN + GRU with three outputs: speed, calibrated σ and calibrated p(stopped). Trained on real drives, 620 KB ONNX; online Doppler self-calibration (Deming fit) | ✅ `py/model/`, `py/model/pstop.py`, `core/speed_cal.cpp`, `py/README_PHASE2.md` |
+| 3 | Filter **engine vibration, potholes, bumps** | 200–400 Hz shock detector + pothole-robust vibration RMS in the core; pothole marks need a 1 g vertical jolt (1.7 per km on real Hyderabad drives, down from 27) | ✅ `core/vib.cpp`, `py/phase7c_gate.py`, `py/tests/test_pothole_filter.py` |
 | 4 | Detect **phone misalignment** on the mount | CUSUM re-mount detector, re-levels in 0.4 s, resets the learnt forward axis | ✅ `core/align.cpp`, `py/phase4_gates.py` |
 | 5 | **Alignment and calibration**: phone pitch, roll, yaw vs the car | Gravity levelling; GNSS-aided forward-axis fit (sign included); gyro bias in the filter | ✅ `py/heading_aids.py`, `nav/HeadingAids.kt` |
 | 6 | **Map matching** on an offline map (OSM, e.g. HMM) | Offline OSM basemap + road network on the phone (Hyderabad); HMM matcher with route-distance transitions, on the phone and the edge engine: 13.6 → 11.7 % on train drives | ✅ `py/road_hmm.py`, `nav/RoadHmm.kt`, `py/phase9_map_eval.py` (not yet confirmed on a real Redmi drive) |
 | 7 | **Non-holonomic constraints** | Structural in the planar ESKF (velocity along heading); explicit NHC update in the 3D 16-state ESKF | ✅ `core/idr.h` |
 | 8 | **AI-based GNSS + INS fusion** | Learned fusion head: speed and its noise from a GRU, fed to the ESKF as an adaptive measurement | ✅ `py/model/fusion_head.py`, `nav/FusionHead.kt` |
 | 9 | **Seamless GNSS handler**, switch within milliseconds | No mode switch: continuous GNSS trust (C/N₀, satellites, DOP, χ², NavIC-weighted) scales the measurement noise; ≤ 1.7 m 10 s after re-lock | ✅ `core/gnss_quality.cpp`, `py/phase6_check.py` |
-| 10 | **Mobile app** with real-time UI and uninterrupted vehicle icon | Native Android app: offline map, live dot and heading, GNSS/DR mode, live drift vs the 10 % line, outage simulator, drive recorder | ✅ `android/` |
+| 10 | **Mobile app** with real-time UI and uninterrupted vehicle icon | Native Android app on a light daytime map: a location dot like Google Maps (heading beam, and an accuracy circle that is the filter's own 1σ, so it grows while dead-reckoning), GNSS/DR mode, live drift vs the 10 % line, outage simulator, drive recorder | ✅ `android/` |
 | 11 | **On-device inference** | ONNX Runtime Mobile + the C++ core over JNI; no network | ✅ |
-| 12 | **Edge engine** for external IMUs | `edge_engine.py`: streaming CLI, any IMU rate, phone-logger or generic CSV | ✅ `py/edge_engine.py`, `py/tests/test_edge_engine.py` |
+| 12 | **Edge engine** for external IMUs | `edge_engine.py`: streaming CLI, any IMU rate, phone-logger or generic CSV; and a JavaScript twin that runs in any browser, offline | ✅ `py/edge_engine.py`, `docs/engine/`, `py/tests/test_edge_engine.py`, `py/tests/test_web_engine.py` |
 | 13 | **10 Hz** phone, **~200 Hz** FOG | 10–400 Hz input; ~280× real time at 200 Hz | ✅ |
 | 14 | Magnetometer / compass input | Tilt-compensated heading seed when parked (σ 20°); not fused continuously, because in-car magnetic fields make it worse than the gyro over an outage | 🟡 `py/heading_aids.py` |
 | 15 | **Drift < 10 %** of distance in the outage (e.g. < 100 m over 1 km in a tunnel) | 11.7 % as shipped (13.6 % without the map) on train drives; 16.4 % on test; Hyderabad tunnel, 1 km: median 163 m, under 100 m in 24 % of runs | ❌ not yet (§Results) |
@@ -188,6 +193,35 @@ Other measured properties (each one is produced by the script or pinned by the t
 One loop runs on every sample, with or without GNSS. The C++ core (`core/`, `libidr`) is
 the same object in the Android app (JNI), the edge engine and the tests (ctypes), and a
 Python oracle checks it to 1e-9 or better.
+
+## In the browser
+
+`docs/engine/` is the phone's loop in plain JavaScript:
+- the ESKF, self-calibration, re-mount detector and GNSS trust (`core.js`);
+- the heading aids (`aids.js`);
+- SpeedNet, run as a TCN + GRU forward pass from exported weights, with no ML runtime (`speednet.js`);
+- the fusion head (`head.js`);
+- the HMM road matcher (`hmm.js`);
+- the loop itself (`engine.js`).
+
+`py/tests/test_web_engine.py` runs it under Node against the Python it was ported from:
+- core to 1e-9;
+- SpeedNet to torch within 1e-4;
+- the four-stage loop on a 200 Hz synthetic drive and on a real validation drive, within 1 cm.
+
+On the whole hour of validation driving the stages agree to 0.2 mm, and the road matcher
+snaps at the same steps.
+
+The demo page uses it in "Run it in your browser":
+- load a recording from the app (`imu.csv` + `gnss.csv`) or any IMU + GNSS CSV;
+- click the timeline where GNSS should drop, or press **Random spot** to re-run somewhere
+  else; each run adds a row, and the table keeps the median;
+- the map stage fetches that stretch's roads from OpenStreetMap, if you allow it;
+- nothing else leaves the device.
+
+The page is also a PWA (`docs/sw.js`, `docs/manifest.webmanifest`). Once visited, the
+replay and the engine work offline, and it installs like an app. After changing the engine
+or the models, regenerate the model files with `cd py && PYTHONPATH=. python3 web_export.py`.
 
 ## Quick start
 
@@ -219,7 +253,9 @@ see `android/README.md`.
 - **Paired comparisons.** Configurations run on identical outage windows and are
   compared outage by outage with bootstrap intervals. On 1 h of validation data the
   medians swing by ±2 points from noise alone.
-- **Negative results stay in.** Results that went against us are recorded in `REALDATA.md`:
+- **Negative results stay in.** [`LESSONS.md`](LESSONS.md) lists our own bugs, the results
+  that flattered us and what still does not work, each with what exposed it. More are
+  recorded in `REALDATA.md`:
   - synthetic-trained nets did not transfer to real phones;
   - a live-loop bug rejected 99 % of real GNSS fixes;
   - naive road snapping on real roads made drift worse;
@@ -236,13 +272,15 @@ see `android/README.md`.
 | `map/` | offline maps: Hyderabad (app) and the IO-VNBD area (evaluation), both from OSM |
 | `tools/` | map build pipeline (`build_map.sh`, `osm_layers.py`), `replay` |
 | `out/` | committed results, plots and reports |
-| `docs/` | the demo page (GitHub Pages); its data comes from `py/build_site.py` |
+| `docs/` | the demo page (GitHub Pages, installable offline); its data comes from `py/build_site.py`; `docs/engine/` is the browser engine |
 
 Write-ups:
 - `py/README_PHASE0.md`: benchmark first;
 - `py/README_PHASE1.md`: physics baseline and logger app;
 - `py/README_PHASE2.md`: SpeedNet;
-- `REALDATA.md`: real-data validation.
+- `REALDATA.md`: real-data validation;
+- `RESEARCH.md`: the published idea behind each component, with what it measured here;
+- `LESSONS.md`: what we got wrong, and how we found it.
 
 ## References
 

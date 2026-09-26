@@ -82,6 +82,7 @@ def _decl(l):
     l.vib_create.argtypes = [d]
     l.vib_destroy.argtypes = [v]
     l.vib_set_params.argtypes = [v, d, d, d, d]
+    l.vib_set_shock_filter.argtypes = [v, d, d]
     l.vib_push.argtypes = [v, d, d, d, d]; l.vib_push.restype = C.c_int
     l.vib_window.argtypes = [v, C.POINTER(C.c_double * 4)]
 
@@ -147,6 +148,8 @@ class Vib:
     def __init__(self, hz=250.0): self.l = _load(); self.h = self.l.vib_create(hz)
     def set_params(self, shock_k=0.0, refractory_s=0.0, hp_fc=0.0, ema_tau=0.0):
         self.l.vib_set_params(self.h, shock_k, refractory_s, hp_fc, ema_tau)
+    def set_shock_filter(self, min_peak=0.0, gap_s=0.0):
+        self.l.vib_set_shock_filter(self.h, min_peak, gap_s)
     def push(self, ax, ay, az, dt=0.0): return self.l.vib_push(self.h, ax, ay, az, dt)
     def window(self):
         out = (C.c_double * 4)(); self.l.vib_window(self.h, C.byref(out)); return np.array(out)

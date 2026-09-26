@@ -7,8 +7,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.view.WindowManager
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -72,7 +70,6 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     private lateinit var chipNavic: Ui.Chip
     private lateinit var chipCn0: Ui.Chip
     private lateinit var chipTrust: Ui.Chip
-    private var pulse: ObjectAnimator? = null
     private var pillState = ""
 
     // bottom sheet
@@ -132,7 +129,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
         engine = FusionEngine(applicationContext) { s -> onNav(s) }
 
-        // dark placeholder while the style loads (MapLibre's default is a light beige flash)
+        // map-land placeholder while the style loads
         val opts = MapLibreMapOptions.createFromAttributes(this).foregroundLoadColor(Ui.BG)
         mapView = MapView(this, opts).apply { onCreate(b) }
         navMap = NavMap(this, mapView)
@@ -145,8 +142,8 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         followBtn = ImageView(this).apply {
             setImageResource(com.offmaps.R.drawable.ic_my_location)
             val p = dp(12f); setPadding(p, p, p, p)
-            background = Ui.rounded(this@NavActivity, Ui.SURFACE, 999f, Ui.STROKE)
-            elevation = Ui.dp(this@NavActivity, 6f)
+            background = Ui.rounded(this@NavActivity, Ui.SURFACE, 999f)
+            elevation = Ui.dp(this@NavActivity, 4f)
             contentDescription = "Re-centre on the car"
             setOnClickListener { navMap.follow() }
         }
@@ -186,7 +183,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
             engine.setVehicle(if (engine.getVehicle() == "car") "two_wheeler" else "car"); refreshButtons()
         }
         refreshButtons()
-        setMode("STANDBY", Ui.MUTED)
+        setMode("Standby", Ui.MUTED)
         setContentView(root)
         loadOfflineMap()
     }
@@ -196,29 +193,21 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     private fun buildHeader(): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val p = dp(14f); setPadding(p, dp(12f), p, p)
-            background = Ui.rounded(this@NavActivity, Ui.SURFACE, 22f, Ui.STROKE)
-            elevation = Ui.dp(this@NavActivity, 8f)
+            val p = dp(16f); setPadding(p, dp(12f), p, dp(14f))
+            background = Ui.rounded(this@NavActivity, Ui.SURFACE, 16f)
+            elevation = Ui.dp(this@NavActivity, 3f)
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val title = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        title.addView(Ui.text(this, "Off", 21f, Ui.TEXT, Ui.BLACK))
-        title.addView(Ui.text(this, "Maps", 21f, Ui.ACCENT, Ui.BLACK))
-        brand.addView(title)
-        brand.addView(Ui.text(this, "Navigation that keeps going without GNSS", 11f, Ui.MUTED).apply {
-            setPadding(0, dp(3f), 0, 0)
-        })
-        top.addView(brand, LinearLayout.LayoutParams(0, WRAP, 1f))
+        top.addView(Ui.text(this, "OffMaps", 18f, Ui.TEXT, Ui.BOLD), LinearLayout.LayoutParams(0, WRAP, 1f))
         modePill = Ui.Pill(this)
         top.addView(modePill)
         card.addView(top)
 
         val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        chipSat = Ui.Chip(this, "SATELLITES"); chipNavic = Ui.Chip(this, "NAVIC")
-        chipCn0 = Ui.Chip(this, "C/N0 dB-Hz"); chipTrust = Ui.Chip(this, "GNSS TRUST")
+        chipSat = Ui.Chip(this, "Satellites"); chipNavic = Ui.Chip(this, "NavIC")
+        chipCn0 = Ui.Chip(this, "Signal, dB-Hz"); chipTrust = Ui.Chip(this, "GNSS trust")
         listOf(chipSat, chipNavic, chipCn0, chipTrust).forEachIndexed { i, c ->
-            chips.addView(c, LinearLayout.LayoutParams(0, WRAP, 1f).apply { if (i > 0) marginStart = dp(6f) })
+            chips.addView(c, LinearLayout.LayoutParams(0, WRAP, 1f).apply { if (i > 0) marginStart = dp(8f) })
         }
         card.addView(chips, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(12f) })
         return card
@@ -228,16 +217,19 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         val sh = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val p = dp(18f); setPadding(p, dp(10f), p, dp(16f))
-            background = Ui.sheet(this@NavActivity, Ui.SHEET, 28f)
-            elevation = Ui.dp(this@NavActivity, 12f)
+            background = Ui.sheet(this@NavActivity, Ui.SHEET, 16f)
+            elevation = Ui.dp(this@NavActivity, 8f)
             isClickable = true                                   // don't pass touches to the map
         }
         sh.addView(View(this).apply { background = Ui.rounded(this@NavActivity, Ui.STROKE, 999f) },
-            LinearLayout.LayoutParams(dp(40f), dp(4f)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(14f) })
+            LinearLayout.LayoutParams(dp(32f), dp(4f)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(14f) })
 
         // --- idle: system check ---
         readyPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        readyPanel.addView(Ui.label(this, "SYSTEM CHECK"))
+        readyPanel.addView(Ui.text(this, "Ready to navigate", 18f, Ui.TEXT, Ui.BOLD))
+        readyPanel.addView(Ui.text(this, "Keeps your position when GNSS drops: tunnels, underpasses, basements.", 13f, Ui.MUTED).apply {
+            setPadding(0, dp(4f), 0, dp(4f)); setLineSpacing(0f, 1.15f)
+        })
         rowMap = readyRow(); rowRoads = readyRow(); rowModel = readyRow(); rowSensors = readyRow()
         listOf(rowMap, rowRoads, rowModel, rowSensors).forEach { readyPanel.addView(it) }
         setRow(rowMap, null, "Offline map", "loading…")
@@ -252,11 +244,11 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         val big = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
 
         val speedCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        speedCol.addView(Ui.label(this, "SPEED"))
+        speedCol.addView(Ui.label(this, "Speed"))
         val speedRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        speedVal = Ui.text(this, "0", 44f, Ui.TEXT, Ui.BLACK)
+        speedVal = Ui.num(this, "0", 40f)
         speedRow.addView(speedVal)
-        speedRow.addView(Ui.text(this, " km/h", 13f, Ui.MUTED, Ui.BOLD).apply { setPadding(0, 0, 0, dp(6f)) })
+        speedRow.addView(Ui.text(this, " km/h", 13f, Ui.MUTED).apply { setPadding(0, 0, 0, dp(6f)) })
         speedCol.addView(speedRow, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4f) })
         speedSrc = Ui.text(this, "", 11f, Ui.MUTED)
         speedCol.addView(speedSrc, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4f) })
@@ -264,14 +256,14 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
         val hdgCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         compass = CompassView(this)
-        hdgCol.addView(compass, LinearLayout.LayoutParams(dp(66f), dp(66f)))
-        hdgVal = Ui.text(this, "–", 12f, Ui.TEXT, Ui.MONO)
+        hdgCol.addView(compass, LinearLayout.LayoutParams(dp(60f), dp(60f)))
+        hdgVal = Ui.num(this, "–", 12f, Ui.MUTED, Ui.REGULAR)
         hdgCol.addView(hdgVal, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(6f) })
         big.addView(hdgCol, LinearLayout.LayoutParams(0, WRAP, 0.8f))
 
         val driftCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
-        driftLbl = Ui.label(this, "FIX AGREEMENT")
-        driftVal = Ui.text(this, "–", 28f, Ui.TEXT, Ui.CONDENSED)
+        driftLbl = Ui.label(this, "Fix agreement")
+        driftVal = Ui.num(this, "–", 26f)
         driftSub = Ui.text(this, "", 11f, Ui.MUTED).apply { gravity = Gravity.END }
         driftCol.addView(driftLbl)
         driftCol.addView(driftVal, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(6f) })
@@ -282,9 +274,9 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         chartBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; visibility = View.GONE
             val p = dp(12f); setPadding(p, dp(10f), p, dp(8f))
-            background = Ui.rounded(this@NavActivity, Ui.SURFACE_2, 16f)
+            background = Ui.rounded(this@NavActivity, Ui.SURFACE_2, 12f)
         }
-        chartBox.addView(Ui.label(this, "DRIFT DURING OUTAGE  vs  ISRO LIMIT"))
+        chartBox.addView(Ui.label(this, "Drift during this outage vs the 10 % limit"))
         chart = DriftChart(this)
         chartBox.addView(chart, LinearLayout.LayoutParams(MATCH, dp(78f)).apply { topMargin = dp(6f) })
         livePanel.addView(chartBox, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14f) })
@@ -294,15 +286,15 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 val p = dp(10f); setPadding(p, dp(8f), p, dp(8f))
-                background = Ui.rounded(this@NavActivity, Ui.SURFACE_2, 12f)
+                background = Ui.rounded(this@NavActivity, Ui.SURFACE_2, 10f)
             }
-            val v = Ui.text(this, "–", 12f, Ui.TEXT, Ui.BOLD)
-            col.addView(Ui.label(this, lbl).apply { textSize = 9f })
+            val v = Ui.text(this, "–", 13f, Ui.TEXT, Ui.BOLD)
+            col.addView(Ui.label(this, lbl).apply { textSize = 11f })
             col.addView(v, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(3f) })
             stats.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f).apply { if (stats.childCount > 0) marginStart = dp(6f) })
             return v
         }
-        statRoad = stat("ROAD MATCH"); statCal = stat("SELF-CAL"); statBumps = stat("POTHOLES"); statMount = stat("MOUNT")
+        statRoad = stat("Road match"); statCal = stat("Self-cal"); statBumps = stat("Potholes"); statMount = stat("Mount")
         livePanel.addView(stats, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(12f) })
         sh.addView(livePanel)
 
@@ -311,7 +303,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         fun key(color: Int, s: String) {
             legend.addView(View(this).apply { background = Ui.rounded(this@NavActivity, color, 999f) },
                 LinearLayout.LayoutParams(dp(14f), dp(4f)).apply { marginStart = if (legend.childCount > 0) dp(12f) else 0; marginEnd = dp(5f) })
-            legend.addView(Ui.text(this, s, 10.5f, Ui.MUTED))
+            legend.addView(Ui.text(this, s, 12f, Ui.MUTED))
         }
         key(Ui.GNSS, "GNSS"); key(Ui.FUSED, "Fused"); key(Ui.DR, "Dead-reckoning"); key(Ui.SHOCK, "Pothole")
         sh.addView(legend, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14f) })
@@ -323,17 +315,17 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         startBtn = Ui.button(this, "Start navigation", true)
         sh.addView(startBtn, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14f) })
         val toggles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        outageBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(44f) }
-        snapBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(44f) }
+        outageBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(42f) }
+        snapBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(42f) }
         toggles.addView(outageBtn, LinearLayout.LayoutParams(0, WRAP, 1.25f))
         toggles.addView(snapBtn, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(8f) })
-        vehicleBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(44f) }
+        vehicleBtn = Ui.button(this, "", false).apply { textSize = 13f; minHeight = dp(42f) }
         toggles.addView(vehicleBtn, LinearLayout.LayoutParams(0, WRAP, 0.9f).apply { marginStart = dp(8f) })
         sh.addView(toggles, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8f) })
         return sh
     }
 
-    private fun readyRow() = Ui.text(this, "", 13f, Ui.TEXT).apply { setPadding(0, dp(9f), 0, 0) }
+    private fun readyRow() = Ui.text(this, "", 14f, Ui.TEXT).apply { setPadding(0, dp(10f), 0, 0) }
 
     /** ok: true = check, false = cross, null = pending. */
     private fun setRow(row: TextView, ok: Boolean?, what: String, detail: String) {
@@ -347,28 +339,23 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     private fun refreshButtons() {
         startBtn.text = if (running) "Stop navigation" else "Start navigation"
-        Ui.style(startBtn, !running, if (running) Ui.DANGER else Ui.ACCENT)
+        Ui.style(startBtn, true, if (running) Ui.DANGER else Ui.ACCENT)
         val masked = running && engine.isMasked()
-        outageBtn.text = if (masked) "Restore GNSS" else "Simulate GNSS outage"
-        Ui.style(outageBtn, masked, Ui.DR)
+        outageBtn.text = if (masked) "Restore GNSS" else "Simulate outage"
+        Ui.style(outageBtn, masked, if (masked) Ui.DR else Ui.TEXT)
         outageBtn.alpha = if (running) 1f else 0.4f
         val snap = engine.isMapAid()
-        snapBtn.text = if (snap) "Road snap: ON" else "Road snap: OFF"
+        snapBtn.text = if (snap) "Road snap on" else "Road snap off"
         Ui.style(snapBtn, false, if (snap) Ui.ACCENT else Ui.MUTED)
         vehicleBtn.text = if (engine.getVehicle() == "car") "Car" else "Two-wheeler"
-        Ui.style(vehicleBtn, false, Ui.ACCENT)
+        Ui.style(vehicleBtn, false, Ui.TEXT)
     }
 
-    /** Header pill. Dead-reckoning pulses so the mode change is unmissable. */
-    private fun setMode(s: String, color: Int, pulsing: Boolean = false) {
-        val key = "$s|$pulsing"
-        if (key == pillState) return
-        pillState = key
+    /** Header status chip: the nav mode in words and one colour. */
+    private fun setMode(s: String, color: Int) {
+        if (s == pillState) return
+        pillState = s
         modePill.set(s, color)
-        pulse?.cancel(); modePill.alpha = 1f
-        if (pulsing) pulse = ObjectAnimator.ofFloat(modePill, View.ALPHA, 1f, 0.45f).apply {
-            duration = 700; repeatMode = ValueAnimator.REVERSE; repeatCount = ValueAnimator.INFINITE; start()
-        }
     }
 
     private fun dp(v: Float) = Ui.dpi(this, v)
@@ -417,7 +404,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         readyPanel.visibility = View.GONE; livePanel.visibility = View.VISIBLE
         compass.reset(); note.visibility = View.GONE
         refreshButtons()
-        setMode("ACQUIRING GNSS", Ui.ACCENT, pulsing = true)
+        setMode("Finding GNSS", Ui.ACCENT)
 
         recorder = try { DriveRecorder(getExternalFilesDir(null) ?: filesDir) } catch (e: Exception) { null }
         listOf(Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD).forEach { type ->
@@ -449,7 +436,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
         readyPanel.visibility = View.VISIBLE; livePanel.visibility = View.GONE
         for (c in listOf(chipSat, chipNavic, chipCn0, chipTrust)) { c.value.text = "–"; c.value.setTextColor(Ui.TEXT) }
         refreshButtons()
-        setMode("STANDBY", Ui.MUTED)
+        setMode("Standby", Ui.MUTED)
     }
 
     // --- IMU: cache gyro, feed engine on each accel sample (event.timestamp = elapsedRealtimeNanos) ---
@@ -527,13 +514,13 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
         // header: mode + satellite picture
         when {
-            s.spoof -> setMode("SPOOF REJECTED", Ui.DANGER, pulsing = true)
-            s.outageActive -> setMode("DEAD-RECKONING", Ui.DR, pulsing = true)
-            else -> setMode("GNSS LOCK", Ui.OK)
+            s.spoof -> setMode("Spoof rejected", Ui.DANGER)
+            s.outageActive -> setMode("Dead-reckoning", Ui.DR)
+            else -> setMode("GNSS lock", Ui.OK)
         }
         chipSat.value.text = s.svUsed.toString()
         chipNavic.value.text = s.navicSv.toString()
-        chipNavic.value.setTextColor(if (s.navicSv > 0) Ui.ACCENT else Ui.TEXT)
+        chipNavic.value.setTextColor(if (s.navicSv > 0) Ui.OK else Ui.TEXT)
         chipCn0.value.text = if (s.cn0 > 0) String.format(Locale.US, "%.0f", s.cn0) else "–"
         chipTrust.value.text = String.format(Locale.US, "%.0f %%", 100 * s.trust.coerceIn(0.0, 1.0))
         chipTrust.value.setTextColor(when {
@@ -541,7 +528,12 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
         // speed + heading
         speedVal.text = String.format(Locale.US, "%.0f", s.v * 3.6)
-        speedSrc.text = if (s.outageActive) "IMU + AI speed model" else "GNSS-aided fusion"
+        val motion = when {
+            s.pStop.isNaN() -> ""
+            s.pStop >= 0.5 -> String.format(Locale.US, " · stopped %.0f\u00A0%%", 100 * s.pStop)
+            else -> " · moving"
+        }
+        speedSrc.text = (if (s.outageActive) "AI speed" else "GNSS-aided") + motion
         val modeCol = if (s.outageActive) Ui.DR else Ui.ACCENT
         compass.set(s.psi, modeCol)
         val hdg = ((Math.toDegrees(s.psi) % 360) + 360) % 360
@@ -552,18 +544,18 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
             s.outageActive && s.masked -> {
                 chart.add(outS, s.driftM, outDistM); chartLastDrift = s.driftM
                 val p = pct(s.driftM, outDistM)
-                driftLbl.text = "DRIFT vs GNSS"
+                driftLbl.text = "Drift vs GNSS"
                 driftVal.text = String.format(Locale.US, "%.1f m", s.driftM)
                 driftVal.setTextColor(if (outDistM > 1.0 && p <= 10.0) Ui.OK else Ui.DR)
                 driftSub.text = String.format(Locale.US, "%s of %.0f m · %s", pctText(p), outDistM, clock(outS))
             }
             s.outageActive -> {
-                driftLbl.text = "NO GNSS"
+                driftLbl.text = "No GNSS for"
                 driftVal.text = clock(outS); driftVal.setTextColor(Ui.DR)
                 driftSub.text = String.format(Locale.US, "%.0f m dead-reckoned", outDistM)
             }
             else -> {
-                driftLbl.text = "FIX AGREEMENT"
+                driftLbl.text = "Fix agreement"
                 driftVal.text = String.format(Locale.US, "%.1f m", s.driftM); driftVal.setTextColor(Ui.TEXT)
                 driftSub.text = lastOutage ?: "fused vs raw GNSS"
             }
@@ -610,7 +602,7 @@ class NavActivity : AppCompatActivity(), SensorEventListener, LocationListener {
 
     override fun onDestroy() {
         try { unregisterReceiver(outageRx) } catch (_: IllegalArgumentException) {}
-        if (running) stopNav(); pulse?.cancel(); mapView.onDestroy(); super.onDestroy()
+        if (running) stopNav(); mapView.onDestroy(); super.onDestroy()
     }
 
     private val outageRx = object : BroadcastReceiver() {

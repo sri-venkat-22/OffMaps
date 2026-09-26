@@ -1,0 +1,6 @@
+{
+  "name": "offmaps-web-engine",
+  "private": true,
+  "type": "module",
+  "description": "The OffMaps live loop in plain JavaScript (browser + Node); see py/tests/test_web_engine.py"
+}

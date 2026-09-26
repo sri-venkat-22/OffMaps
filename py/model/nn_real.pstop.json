@@ -1,0 +1,14 @@
+{
+  "a": 1.2969009976708645,
+  "b": -0.6287121616771429,
+  "fit_on": "held-out outputs: val drives (shipped net) + train drives (out-of-fold nets)",
+  "crossfit": {
+    "n": 38419,
+    "stopped": 0.11887347406231291,
+    "auc": 0.9782025900763408,
+    "brier": 0.031954625363487234,
+    "ece": 0.012193129968495194,
+    "precision": 0.7773047019622362,
+    "recall": 0.9194219400043793
+  }
+}

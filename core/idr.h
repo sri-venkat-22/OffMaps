@@ -123,7 +123,15 @@ typedef struct vib vib;
 vib*  vib_create(double hz);                /* high-rate sample rate, e.g. 250 */
 void  vib_destroy(vib*);
 void  vib_set_params(vib*, double shock_k, double refractory_s, double hp_fc, double ema_tau);
-/* Push one tri-axial accel sample; returns 1 on the leading edge of a shock. */
+/* Road-hazard filter on top of the adaptive detector (both 0 = off, the default).
+ * A shock only becomes an EVENT when its vertical jolt (high-passed accel along
+ * gravity, from a 1 s EMA of the raw accel) reaches min_peak m/s^2 somewhere in
+ * its ring-down, and at least gap_s after the previous event. On a real Redmi on
+ * Hyderabad roads the adaptive test alone fired ~27 times per km (road texture);
+ * 10 m/s^2 (1 g) + 1 s leaves ~2 per km. rms_clean / shock_frac are unchanged. */
+void  vib_set_shock_filter(vib*, double min_peak, double gap_s);
+/* Push one tri-axial accel sample; returns 1 when an event fires: the leading edge
+ * of a shock, or (with the filter on) the first ring-down sample that passes it. */
 int   vib_push(vib*, double ax, double ay, double az, double dt);
 /* Per-window features since the last call; out[4] = {rms_clean (pothole-rejected),
  * rms_raw (all samples), shock_frac, n_events}. Resets the window accumulators. */

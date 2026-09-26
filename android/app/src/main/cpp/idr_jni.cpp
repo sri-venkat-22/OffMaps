@@ -191,6 +191,10 @@ JNIEXPORT void JNICALL
 Java_com_offmaps_nav_IdrNative_vibSetParams(JNIEnv*, jobject, jlong h, jdouble shockK, jdouble refrS, jdouble hpFc, jdouble emaTau) {
     vib_set_params(H(vib, h), shockK, refrS, hpFc, emaTau);
 }
+JNIEXPORT void JNICALL
+Java_com_offmaps_nav_IdrNative_vibSetShockFilter(JNIEnv*, jobject, jlong h, jdouble minPeak, jdouble gapS) {
+    vib_set_shock_filter(H(vib, h), minPeak, gapS);
+}
 JNIEXPORT jint JNICALL
 Java_com_offmaps_nav_IdrNative_vibPush(JNIEnv*, jobject, jlong h, jdouble ax, jdouble ay, jdouble az, jdouble dt) {
     return vib_push(H(vib, h), ax, ay, az, dt);

@@ -22,6 +22,7 @@ class VibRef:
         self.clean_ss = self.raw_ss = 0.0
         self.clean_cnt = self.cnt = self.shock_cnt = 0
         self.events = 0
+        self.g = [0.0, 0.0, 0.0]; self.min_peak = 0.0; self.gap_set = self.gap = 0; self.armed = 0
 
     def _recompute(self):
         dt = 1.0 / self.hz
@@ -30,6 +31,7 @@ class VibRef:
         self.beta = 1.0 - np.exp(-dt / self.ema_tau)
         self.refractory_set = int(round(0.15 * self.hz))
         self.warm = int(round(0.4 * self.hz))
+        self.beta_g = 1.0 - np.exp(-dt / 1.0)
 
     def set_params(self, shock_k=0.0, refractory_s=0.0, hp_fc=0.0, ema_tau=0.0):
         if shock_k > 0: self.shock_k = shock_k
@@ -38,15 +40,21 @@ class VibRef:
         self._recompute()
         if refractory_s > 0: self.refractory_set = int(round(refractory_s * self.hz))
 
+    def set_shock_filter(self, min_peak=0.0, gap_s=0.0):
+        self.min_peak = min_peak if min_peak > 0 else 0.0
+        self.gap_set = int(round(gap_s * self.hz)) if gap_s > 0 else 0
+
     def push(self, ax, ay, az, dt=0.0):
         x = [ax, ay, az]; y = [0.0, 0.0, 0.0]
         if not self.have_prev:
-            for i in range(3): self.px[i] = x[i]; self.py[i] = 0.0; y[i] = 0.0
+            for i in range(3): self.px[i] = x[i]; self.py[i] = 0.0; y[i] = 0.0; self.g[i] = x[i]
             self.have_prev = 1
         else:
             for i in range(3):
                 y[i] = self.alpha * (self.py[i] + x[i] - self.px[i])
                 self.px[i] = x[i]; self.py[i] = y[i]
+                self.g[i] += self.beta_g * (x[i] - self.g[i])
+        if self.gap > 0: self.gap -= 1
         mag = np.sqrt(y[0]*y[0] + y[1]*y[1] + y[2]*y[2])
         if not self.have_base:
             self.m = mag; self.s = 0.0; self.have_base = 1
@@ -67,12 +75,20 @@ class VibRef:
         if self.refractory > 0:
             shock_sample = 1; self.refractory -= 1
         elif over:
-            edge = 1; shock_sample = 1; self.events += 1; self.refractory = self.refractory_set
+            shock_sample = 1; self.armed = 1; self.refractory = self.refractory_set
         else:
             shock_sample = 0
             dev = abs(mag - self.m)
             self.m += self.beta * (mag - self.m)
             self.s += self.beta * (dev - self.s)
+        if not shock_sample:
+            self.armed = 0
+        elif self.armed and self.gap == 0:
+            g = self.g
+            gn = np.sqrt(g[0]*g[0] + g[1]*g[1] + g[2]*g[2])
+            vert = abs(y[0]*g[0] + y[1]*g[1] + y[2]*g[2]) / gn if gn > 0 else mag
+            if vert >= self.min_peak:
+                edge = 1; self.armed = 0; self.events += 1; self.gap = self.gap_set
         self.raw_ss += mag * mag; self.cnt += 1
         if shock_sample: self.shock_cnt += 1
         else: self.clean_ss += mag * mag; self.clean_cnt += 1

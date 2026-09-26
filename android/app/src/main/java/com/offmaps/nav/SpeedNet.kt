@@ -24,7 +24,11 @@ class SpeedNet private constructor(modelBytes: ByteArray, private val profile: S
     private val session: OrtSession = env.createSession(modelBytes, OrtSession.SessionOptions())
     private val shape = longArrayOf(1L, Features.channels(profile.featVersion).toLong(), profile.win.toLong())
 
-    /** @return [v (m/s), sigma (m/s)] for the window; sigma is the fusable heteroscedastic uncertainty. */
+    /**
+     * @return [v (m/s), sigma (m/s), p(stopped)] for the window; sigma is the fusable
+     * heteroscedastic uncertainty, p(stopped) the calibrated motion-class probability
+     * (NaN when the profile carries no "pstop" calibration).
+     */
     fun predict(acc: Array<DoubleArray>, gyro: Array<DoubleArray>): DoubleArray {
         val feat = Features.features(profile.featVersion, acc, gyro)   // FloatArray(C*win), channel-major
         OnnxTensor.createTensor(env, FloatBuffer.wrap(feat), shape).use { input ->
@@ -34,7 +38,10 @@ class SpeedNet private constructor(modelBytes: ByteArray, private val profile: S
                 val mu = (out["mu"] as FloatArray)[0].toDouble()          // softplus displacement >= 0
                 val logvar = (out["logvar"] as FloatArray)[0].toDouble()
                 val sigmaRaw = exp(0.5 * logvar)
-                return Features.applyCalib(mu, sigmaRaw, profile.calibA, profile.calibB, profile.calibS)
+                val (v, sigma) = Features.applyCalib(mu, sigmaRaw, profile.calibA, profile.calibB, profile.calibS)
+                val cls = out["cls"] as? Array<*>
+                val pStop = (cls?.get(0) as? FloatArray)?.let { Features.pStop(it, profile.pstopA, profile.pstopB) } ?: Double.NaN
+                return doubleArrayOf(v, sigma, pStop)
             }
         }
     }

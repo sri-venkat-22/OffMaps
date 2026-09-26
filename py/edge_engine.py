@@ -10,7 +10,8 @@ Input columns (names are case-insensitive; see --help for unit flags):
   IMU : t | t_ns | time,  ax ay az (m/s^2),  gx gy gz (rad/s),  [mx my mz (uT)]
   GNSS: t | t_ns | time,  lat lon,  [speed (m/s)] [bearing (deg)] [cn0_mean sv_used navic_sv] [masked]
 Output: one row PER IMU SAMPLE (the input rate): t, lat, lon, e, n, heading_deg,
-  speed, sigma_e, sigma_n, dead_reckoning, snapped.
+  speed, sigma_e, sigma_n, dead_reckoning, snapped, p_stopped (SpeedNet's calibrated
+  probability that the vehicle is stopped, latest 1 s step; model/pstop.py).
 
 What runs, and at what rate (the phone's FusionEngine.kt, validated through its
 host mirror phase6_check.run, with the IMU rate made a parameter):
@@ -38,7 +39,7 @@ decimates to 10 Hz), and each 10 Hz step uses the MEAN of its samples (anti-alia
 instead of one sample. At 10 Hz input both reduce to the phone's loop.
 """
 from __future__ import annotations
-import argparse, math, os, sys, time
+import argparse, json, math, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 
@@ -46,6 +47,7 @@ import phase6_check as P
 import heading_aids as HA
 from core_bridge import Filter, SpeedCal, Align, gq_trust, gq_R, gq_spoof
 from model.features import HZ, spec
+from model.pstop import stop_logit, apply_pstop, sidecar_path
 from model.mount import leveled_basis, LEVEL_TAU_S, TAU_MED_S
 
 STEP_S = 1.0 / HZ              # 10 Hz alignment / NN grid
@@ -69,10 +71,14 @@ class OnnxSpeedNet:
         c = prof["calib"]; self.a, self.b, self.s = c["a"], c["b"], c["s"]
         f = prof.get("feat") or {"version": 1}      # profiles before feature v2 carry none
         self.feat_fn, _, self.win = spec(f["version"], f.get("win"))
+        self.pstop = prof.get("pstop")               # p(stopped) calibration (model/pstop.py), or none
+        self.p_stop = float("nan")
 
     def predict(self, acc, gyro):
         x = self.feat_fn(acc, gyro)[None]
-        mu, logvar = self.sess.run(["mu", "logvar"], {"imu": x})
+        mu, logvar, cls = self.sess.run(["mu", "logvar", "cls"], {"imu": x})
+        if self.pstop:
+            self.p_stop = float(apply_pstop(stop_logit(cls[0]), self.pstop))
         mu, sig = float(mu[0]), math.exp(0.5 * float(logvar[0]))
         return (mu - self.a) / self.b, max(sig / self.b * self.s, 1e-6)
 
@@ -87,11 +93,16 @@ class TorchSpeedNet:
         self.net = load_net(ckpt); c = get_calib(ckpt)
         self.a, self.b, self.s = c["a"], c["b"], c["s"]
         self.feat_fn, self.win = self.net.feat_fn, self.net.win
+        sc = sidecar_path(ckpt)
+        self.pstop = json.load(open(sc)) if os.path.exists(sc) else None
+        self.p_stop = float("nan")
 
     def predict(self, acc, gyro):
         x = self.torch.from_numpy(self.feat_fn(acc, gyro)[None])
         with self.torch.no_grad():
-            mu, logvar, _, _ = self.net(x)
+            mu, logvar, _, cls = self.net(x)
+        if self.pstop:
+            self.p_stop = float(apply_pstop(stop_logit(cls[0].numpy()), self.pstop))
         mu, sig = float(mu[0]), math.exp(0.5 * float(logvar[0]))
         return (mu - self.a) / self.b, max(sig / self.b * self.s, 1e-6)
 
@@ -160,6 +171,7 @@ class EdgeEngine:
         self.init = False; self.lat0 = self.lon0 = None
         self.steps_nn = 0; self.since_gnss = 0; self.dr_steps = 0; self.rejects = 0
         self.vnn_raw = 0.0; self.sig = 1.0; self.sumsig = 0.0; self.npush = 0
+        self.p_stop = float("nan")            # SpeedNet's calibrated p(stopped), latest 1 s step
         self.k, self.c = 1.0, 0.0
         self.masked = False; self.snapped = False
         self.hist = []; self.vit_way = -1; self.vit_cor = False
@@ -262,6 +274,7 @@ class EdgeEngine:
         if self.steps_nn >= NN_EVERY and len(self.ring_a) >= self.net.win:
             self.steps_nn = 0
             self.vnn_raw, self.sig = self.net.predict(np.array(self.ring_a), np.array(self.ring_g))
+            self.p_stop = getattr(self.net, "p_stop", float("nan"))
             g1 = np.array(self.ring_g[-NN_EVERY:])
             still = self.vnn_raw < STOP_V and float(np.linalg.norm(g1, axis=1).max()) < STOP_GYRO
             self.still_s = self.still_s + 1 if still else 0
@@ -497,7 +510,7 @@ def read_inputs(imu_path=None, gnss_path=None, csv_path=None, gyro_deg=False, ac
 def run(eng, imu, gn, outages=(), progress=False):
     """Interleave IMU and GNSS by time (a fix at the same instant as a sample is applied
     after it, as in phase6_check.run); returns the per-IMU-sample output arrays."""
-    N = len(imu["t"]); out = np.empty((N, 10))
+    N = len(imu["t"]); out = np.empty((N, 11))
     ti, A, Gy, Mg = imu["t"], imu["acc"], imu["gyro"], imu["mag"]
     tg = gn["t"]; j = 0; ng = len(tg)
     spans = list(outages)
@@ -512,9 +525,9 @@ def run(eng, imu, gn, outages=(), progress=False):
             j += 1
         if eng.init:
             st = eng.f.state(); cv = eng.f.cov()
-            out[i] = (t, st[0], st[1], st[2], st[3], cv[0], cv[1], eng.dead_reckoning(), eng.snapped, 1)
+            out[i] = (t, st[0], st[1], st[2], st[3], cv[0], cv[1], eng.dead_reckoning(), eng.snapped, 1, eng.p_stop)
         else:
-            out[i] = (t, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 1, 0, 0)
+            out[i] = (t, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 1, 0, 0, eng.p_stop)
         if progress and i % 200000 == 0 and i:
             print(f"  {i}/{N} samples", flush=True)
     return out
@@ -529,7 +542,8 @@ def write_output(eng, out, path):
     pd.DataFrame(dict(t=out[:, 0], lat=lat, lon=lon, e=out[:, 1], n=out[:, 2],
                       heading_deg=np.degrees(out[:, 3]) % 360, speed=out[:, 4],
                       sigma_e=np.sqrt(out[:, 5]), sigma_n=np.sqrt(out[:, 6]),
-                      dead_reckoning=out[:, 7].astype(int), snapped=out[:, 8].astype(int))
+                      dead_reckoning=out[:, 7].astype(int), snapped=out[:, 8].astype(int),
+                      p_stopped=out[:, 10])
                  ).to_csv(path, index=False, float_format="%.7f")
 
 

@@ -32,3 +32,6 @@ map/coventry/tiles.mbtiles
 
 # demo run outputs (py/demo.py); the committed plot is out/demo/demo_outage.png
 out/demo/*.csv
+
+# Local-only sample drive for the in-browser engine (a personal phone recording: publish only on purpose)
+docs/data/sample/

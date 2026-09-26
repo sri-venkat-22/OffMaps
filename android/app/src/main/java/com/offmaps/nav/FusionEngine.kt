@@ -81,6 +81,12 @@ class FusionEngine(
     private val REACQ_FIXES = 5                 // consecutive rejected strong fixes -> re-seed from GNSS
     private val K_MIN = 1.0 / 3.0               // self-cal scale outside [K_MIN,K_MAX] is a degenerate
     private val SHOCK_MIN_SPEED = 3.0           // m/s: below this a "shock" is the phone being handled, not a road
+    // pothole markers (py/tests/test_pothole_filter.py): the adaptive detector alone marked ~27/km on the
+    // first Redmi drives (road texture); a 1 g vertical jolt, one mark per 1 s and none within 30 m of
+    // another leaves ~2/km
+    private val SHOCK_MIN_PEAK = 10.0           // m/s^2 vertical (high-passed, along gravity)
+    private val SHOCK_GAP_S = 1.0
+    private val SHOCK_MERGE_M = 30.0
     private val K_MAX = 3.0                     //   fit (NN not tracking speed), not a calibration
     // strict stop detector (== edge_engine.STOP_*): SpeedNet < STOP_V for STOP_S s AND max |gyro| < STOP_GYRO
     private val STOP_V = 0.3; private val STOP_S = 3; private val STOP_GYRO = 0.03
@@ -128,6 +134,7 @@ class FusionEngine(
     private var steps = 0L
     private var vHeld = 0.0                     // last NN speed after Doppler self-cal
     private var sigHeld = 1.0
+    private var pStopHeld = Double.NaN          // SpeedNet's calibrated p(stopped), latest 1 s step
     private var vNnRaw = 0.0                    // last NN speed (affine only) -- regressor for self-cal
     private var lastAlat = 0.0
     private var sumSigSq = 0.0
@@ -148,6 +155,7 @@ class FusionEngine(
     private var rawCount = 0
     private var shockCount = 0
     private val pendingShocks = ArrayList<Double>()   // lat, lon pairs not yet published
+    private val shockEn = ArrayList<DoubleArray>()    // ENU of every mark this session (SHOCK_MERGE_M)
 
     // ---- Phase 8: learned fusion head, heading aids, strict ZUPT ----
     private var head: FusionHead? = null
@@ -209,11 +217,11 @@ class FusionEngine(
     private fun resetStreaming() {
         bufFill = 0; bufHead = 0; haveGrav = false; initialized = false; level.reset()
         decimator.reset(); lastStepNs = 0L
-        stepsSinceNn = 0; steps = 0; vHeld = 0.0; sigHeld = 1.0; vNnRaw = 0.0
+        stepsSinceNn = 0; steps = 0; vHeld = 0.0; sigHeld = 1.0; vNnRaw = 0.0; pStopHeld = Double.NaN
         sumSigSq = 0.0; calPushes = 0; k = 1.0; c = 0.0; haveGnss = false
         lastTrust = 0.0; lastSpoof = false; lastDrift = 0.0; lastAlignChanged = false
         stepsSinceGnss = 0; rejects = 0; drSteps = 0; snapped = false
-        rawT0Ns = 0L; rawCount = 0; shockCount = 0; pendingShocks.clear()
+        rawT0Ns = 0L; rawCount = 0; shockCount = 0; pendingShocks.clear(); shockEn.clear()
         enu = Enu()                                      // new session -> new origin at its first fix
         headState = null; pre.clear(); yawAlign.reset(); haveMag = false; stillS = 0; lastYaw = 0.0
         headingSeed = "none"
@@ -363,6 +371,7 @@ class FusionEngine(
             val (accW, gyrW) = orderedWindow()
             val pred = net!!.predict(accW, gyrW)          // [v_calibrated, sigma]
             vNnRaw = pred[0]; sigHeld = pred[1]           // always: the self-cal regressor
+            pStopHeld = pred[2]                           // display + edge output only (no ZUPT from it)
             vHeld = calApply(vNnRaw)                      // Doppler self-cal (frozen k,c)
             var gMax = 0.0; var yawSum = 0.0
             for (i in win - NN_EVERY_STEPS until win) {
@@ -504,13 +513,15 @@ class FusionEngine(
             if (rawCount == 0) rawT0Ns = tNs
             rawCount++
             val span = (tNs - rawT0Ns) * 1e-9
-            if (span >= 2.0) vib = Vib((rawCount - 1) / span)
+            if (span >= 2.0) vib = Vib((rawCount - 1) / span).also { it.setShockFilter(SHOCK_MIN_PEAK, SHOCK_GAP_S) }
             return
         }
         if (v.push(ax, ay, az, 0.0) && initialized) {
             val st = filter?.state() ?: return
             if (st[3] < SHOCK_MIN_SPEED) return          // first desk test: 20 "potholes" from handling the phone
             if (!enu.hasOrigin) return
+            if (shockEn.any { hypot(it[0] - st[0], it[1] - st[1]) < SHOCK_MERGE_M }) return   // already marked
+            shockEn.add(doubleArrayOf(st[0], st[1]))
             val ll = enu.toLatLon(st[0], st[1])
             shockCount++; pendingShocks.add(ll[0]); pendingShocks.add(ll[1])
         }
@@ -532,6 +543,7 @@ class FusionEngine(
         val f = filter ?: return
         if (!enu.hasOrigin) return
         val st = f.state()
+        val cv = f.cov()
         val ll = enu.toLatLon(st[0], st[1])
         val gll = enu.toLatLon(lastGnssE, lastGnssN)
         val s = NavState(
@@ -545,6 +557,8 @@ class FusionEngine(
             roadsLoaded = roads != null, windowWays = roadMatcher?.windowWays ?: 0,
             shocks = shockCount, newShocks = pendingShocks.toDoubleArray(),
             calUsed = k in K_MIN..K_MAX,
+            posSigma = sqrt(maxOf(cv[0] + cv[1], 0.0) / 2),
+            pStop = pStopHeld,
         )
         pendingShocks.clear()
         lastAlignChanged = false
@@ -567,4 +581,6 @@ data class NavState(
     val shocks: Int,                 // potholes / bumps detected this session (Phase 7c)
     val newShocks: DoubleArray,      // lat, lon pairs detected since the previous snapshot
     val calUsed: Boolean,            // Doppler self-cal fit is physical (1/3 <= k <= 3) and applied
+    val posSigma: Double,            // filter's 1-sigma position uncertainty (m): the map's accuracy circle
+    val pStop: Double,               // SpeedNet's calibrated p(stopped) (NaN until the first 1 s step)
 )

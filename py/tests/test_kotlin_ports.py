@@ -3,7 +3,8 @@ reference -- so a port is proven, not eyeballed.
 
   - nav/Level.kt (leveling the NN inputs into the z-up frame SpeedNet was trained
     in, incl. the re-mount snap) == model/mount.level_stream to 1e-9;
-  - nav/Features.kt (window -> (9,20) feature tensor) == model/features.py;
+  - nav/Features.kt (window -> (9,20) feature tensor) == model/features.py, and
+    Features.pStop (SpeedNet's calibrated p(stopped)) == model/pstop.py;
   - nav/FusionHead.kt (the learned fusion head's GRU ensemble + features)
     == model/fusion_head.HeadRunner to 1e-9 on a whole outage;
   - nav/HeadingAids.kt (yaw-rate modes, magnetometer heading, mount guess,
@@ -104,6 +105,19 @@ def test_level_kt_matches_python(harness, stream):
     feat_kt = np.array([float(x) for x in out[-1].split()])
     feat_py = F.window_features(al[-F.WIN:], gl[-F.WIN:]).reshape(-1)
     assert np.max(np.abs(feat_kt - feat_py)) < 1e-5          # Kotlin emits float32
+
+
+def test_pstop_kt_matches_python(harness):
+    """Features.pStop == model/pstop (log-odds of 'stopped' + Platt) on random logits."""
+    from model.pstop import stop_logit, apply_pstop
+    rng = np.random.default_rng(2)
+    cls = rng.normal(0, 3, (40, 4)).astype(np.float32)
+    a, b = 1.2969009976708645, -0.6287121616771429
+    out = harness("\n".join(" ".join(repr(float(x)) for x in r) for r in cls) + "\n", "pstop", repr(a), repr(b))
+    kt = np.array([float(x) for x in out.split()])
+    assert np.max(np.abs(kt - apply_pstop(stop_logit(cls.astype(float)), {"a": a, "b": b}))) < 1e-9
+    nan = harness("0 0 0 0\n", "pstop", "NaN", "NaN").strip()
+    assert nan == "NaN"
 
 
 def test_decimator_keeps_10hz_at_phone_timestamps(harness):

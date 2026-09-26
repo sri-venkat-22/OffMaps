@@ -5,19 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OffMaps Replay</title>
 <meta name="description" content="Watch OffMaps dead-reckon a phone through real GNSS outages: validation drives from IO-VNBD, replayed through the same loop the Android app runs.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%230B7A6B' stroke-width='3' stroke-dasharray='5 3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%230B7A6B'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%234285F4' fill-opacity='.18'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23fff'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='%234285F4'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#ffffff">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header class="top">
   <a class="mark" href="#replay" aria-label="OffMaps, back to the replay">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" class="mark-ring"/><circle cx="16" cy="16" r="4" class="mark-dot"/></svg>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="#4285F4" fill-opacity=".18"/><circle cx="16" cy="16" r="8" fill="#fff"/><circle cx="16" cy="16" r="5.5" fill="#4285F4"/></svg>
     OffMaps
   </a>
   <nav>
+    <a href="#live">Run it yourself</a>
     <a href="#stages">What each part buys</a>
     <a href="#status">Where it stands</a>
     <a href="https://github.com/sri-venkat-22/OffMaps">Code on GitHub</a>
@@ -30,7 +34,8 @@
     <h1>GNSS drops out.<br>The phone keeps navigating.</h1>
     <p class="lede">Below is a real drive. For the shaded stretch the phone gets no position fix at all, and each
       version of the engine has to work out where the car is from its own accelerometer and gyroscope. The thin line with
-      the hollow marker is where the car really went. The phone never sees it during the outage.</p>
+      the hollow marker is where the car really went; the blue dot is the app as it ships. The phone never sees the
+      true path during the outage.</p>
   </section>
 
   <section class="replay" aria-label="Outage replay">
@@ -54,6 +59,16 @@
     <div class="stage-wrap">
       <figure class="map" id="map">
         <svg id="svg" role="img" aria-label="Map of the outage with the true path and each engine's estimate">
+          <defs>
+            <radialGradient id="beamgrad" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#4285F4" stop-opacity="0.55"/>
+              <stop offset="0.45" stop-color="#4285F4" stop-opacity="0.25"/>
+              <stop offset="1" stop-color="#4285F4" stop-opacity="0"/>
+            </radialGradient>
+            <filter id="puckshadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow id="puckshadowfx" dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.3"/>
+            </filter>
+          </defs>
           <g id="roads"></g>
           <rect id="night" x="-1e6" y="-1e6" width="2e6" height="2e6"/>
           <g id="truth"></g>
@@ -89,6 +104,54 @@
         <button data-speed="1">1×</button>
         <button data-speed="4" aria-pressed="true">4×</button>
         <button data-speed="12">12×</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="live">
+    <div class="band-head">
+      <h2>Run it in your browser</h2>
+      <p>The same loop the app runs, ported to plain JavaScript and checked against the Python engine: on an hour of
+        real driving, all four stages agree to 0.2 mm. Load a drive, choose where GNSS drops, and every stage runs on
+        this device. Nothing is uploaded.</p>
+    </div>
+    <div class="live">
+      <div class="live-side">
+        <div class="pickfiles">
+          <label class="filebtn"><input type="file" id="files" multiple accept=".csv,text/csv"><span>Choose a recording</span></label>
+          <button id="livesample" class="ghost" hidden>Use the sample drive</button>
+        </div>
+        <p class="hint">A drive recorded by the OffMaps app (<code>imu.csv</code> + <code>gnss.csv</code>, in
+          <code>Android/data/com.offmaps/files/drive_*</code>) or any IMU + GNSS CSV with <code>t</code> or <code>t_ns</code>,
+          <code>ax ay az</code>, <code>gx gy gz</code>, <code>lat lon</code> and ideally <code>speed</code>, <code>bearing</code>.
+          Accelerometer and gyro units are detected.
+          <label class="inline"><input type="checkbox" id="kmh"> speed is in km/h</label></p>
+        <div id="livedrive" hidden>
+          <p class="which" id="drivesum"></p>
+          <canvas id="timeline" aria-label="GNSS speed over the drive; the shaded band is the outage"></canvas>
+          <p class="hint">Click the timeline to move the outage.</p>
+          <div class="liverow">
+            <div class="speed" id="livedur" role="group" aria-label="Outage length">
+              <button data-d="30">30 s</button><button data-d="60" aria-pressed="true">60 s</button><button data-d="120">120 s</button>
+            </div>
+            <select id="livevehicle" aria-label="Vehicle"><option value="car">Car</option><option value="two_wheeler">Two-wheeler</option></select>
+          </div>
+          <label class="inline roads"><input type="checkbox" id="liveroads" checked> Road matching: fetch this stretch's roads
+            from OpenStreetMap (sends its bounding box to overpass-api.de)</label>
+          <div class="liverow">
+            <button id="liverun" class="primary">Run this outage</button>
+            <button id="liverand" class="ghost">Random spot</button>
+          </div>
+          <div class="progress" id="liveprog" hidden><i></i><span></span></div>
+        </div>
+        <p class="status" id="livestatus" aria-live="polite"></p>
+      </div>
+      <div class="live-main" id="liveout" hidden>
+        <figure class="map livemap"><svg id="livesvg" role="img" aria-label="The outage: the phone's GNSS path and each stage's estimate"></svg></figure>
+        <ul class="legend livelegend" id="livelegend"></ul>
+        <div class="runs-wrap"><table class="runs" id="liveruns"></table></div>
+        <p class="hint">Drift is the error at the end of the outage divided by the distance driven. The reference is the
+          phone's own GNSS, which the engine does not see during the outage; a phone fix is only good to a few metres.</p>
       </div>
     </div>
   </section>
@@ -144,6 +207,7 @@
     reference track downsampled to 2 Hz. Roads © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL).
     Code MIT, <a href="https://github.com/sri-venkat-22/OffMaps">github.com/sri-venkat-22/OffMaps</a>. Page data: <code>py/build_site.py</code>.</p>
 </footer>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=7"></script>
+<script type="module">import { initLive } from "./live.js?v=7"; initLive();</script>
 </body>
 </html>

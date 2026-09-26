@@ -13,31 +13,32 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The app's visual language, in one place: a dark "mission control" palette over
- * a night map, plus small builders for the rounded cards, pills and buttons that
+ * The app's visual language, in one place: a light, map-first palette (white cards
+ * over a daytime map, one blue for "you" and the fused track, amber only while
+ * dead-reckoning), plus small builders for the cards, chips and buttons that
  * NavActivity assembles in code (the app has no XML layouts).
  */
 object Ui {
     // palette
-    val BG = Color.parseColor("#0B1220")
-    val SURFACE = Color.parseColor("#EE111A2B")      // header card: near-opaque over the map
-    val SHEET = Color.parseColor("#111A2B")          // bottom sheet: opaque so labels never bleed through
-    val SURFACE_2 = Color.parseColor("#1A2438")
-    val STROKE = Color.parseColor("#26344D")
-    val TEXT = Color.parseColor("#F3F6FB")
-    val MUTED = Color.parseColor("#8FA0BA")
-    val ACCENT = Color.parseColor("#22D3EE")         // cyan: brand + primary action
-    val FUSED = Color.parseColor("#3B82F6")          // blue: fused ESKF track
-    val DR = Color.parseColor("#F59E0B")             // amber: dead-reckoning
-    val GNSS = Color.parseColor("#CBD5E1")           // light grey: GNSS fixes
-    val OK = Color.parseColor("#10B981")
-    val DANGER = Color.parseColor("#EF4444")
-    val SHOCK = Color.parseColor("#F97316")
+    val BG = Color.parseColor("#F3F1ED")             // map land; shown while the style loads
+    val SURFACE = Color.parseColor("#FFFFFF")        // floating cards over the map
+    val SHEET = Color.parseColor("#FFFFFF")          // bottom sheet
+    val SURFACE_2 = Color.parseColor("#F1F3F4")      // quiet fills inside a card
+    val STROKE = Color.parseColor("#DADCE0")
+    val TEXT = Color.parseColor("#202124")
+    val MUTED = Color.parseColor("#5F6368")
+    val ACCENT = Color.parseColor("#1A73E8")         // blue: primary action + you are here
+    val FUSED = Color.parseColor("#1A73E8")          // fused ESKF track
+    val DR = Color.parseColor("#E37400")             // amber: dead-reckoning
+    val GNSS = Color.parseColor("#9AA0A6")           // grey: raw GNSS fixes
+    val OK = Color.parseColor("#188038")
+    val DANGER = Color.parseColor("#D93025")
+    val SHOCK = Color.parseColor("#C5221F")          // pothole / bump marker
+    val PUCK = Color.parseColor("#4285F4")           // the location dot (Google Maps blue)
 
-    val MONO: Typeface = Typeface.create("monospace", Typeface.BOLD)
+    val REGULAR: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     val BOLD: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    val BLACK: Typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
-    val CONDENSED: Typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+    val MONO: Typeface = BOLD                        // numbers: medium weight with tabular figures (num())
 
     fun dp(c: Context, v: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, c.resources.displayMetrics)
@@ -54,7 +55,6 @@ object Ui {
         setColor(fill)
         val r = dp(c, radiusDp)
         cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-        setStroke(dpi(c, 1f), STROKE)
     }
 
     fun text(c: Context, s: String, sp: Float, color: Int = TEXT, face: Typeface? = null) =
@@ -64,13 +64,17 @@ object Ui {
             includeFontPadding = false
         }
 
-    /** Small caps label above a value ("SPEED", "DRIFT", ...). */
-    fun label(c: Context, s: String) = text(c, s, 10f, MUTED, BOLD).apply { letterSpacing = 0.12f }
+    /** Figures that do not jitter as they change (tabular numerals). */
+    fun num(c: Context, s: String, sp: Float, color: Int = TEXT, face: Typeface = BOLD) =
+        text(c, s, sp, color, face).apply { fontFeatureSettings = "tnum" }
 
-    /** Status pill: dot + text on a tinted background. */
+    /** Small label above a value ("Speed", "Drift", ...). */
+    fun label(c: Context, s: String) = text(c, s, 12f, MUTED, REGULAR)
+
+    /** Status chip: dot + text on a pale tint of the colour. */
     class Pill(c: Context) : LinearLayout(c) {
         private val dot = View(c)
-        val txt = text(c, "", 11f, TEXT, BOLD).apply { letterSpacing = 0.08f }
+        val txt = text(c, "", 13f, TEXT, BOLD)
         init {
             orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             val p = dpi(c, 10f); setPadding(p, dpi(c, 6f), p + dpi(c, 2f), dpi(c, 6f))
@@ -81,35 +85,34 @@ object Ui {
         fun set(s: String, color: Int) {
             txt.text = s; txt.setTextColor(color)
             dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
-            background = rounded(context, (color and 0x00FFFFFF) or 0x26000000, 999f, (color and 0x00FFFFFF) or 0x66000000)
+            background = rounded(context, (color and 0x00FFFFFF) or 0x1A000000, 999f)
         }
     }
 
-    /** Metric chip for the header strip: LABEL value. */
+    /** Header metric: small label over a value, no box. */
     class Chip(c: Context, lbl: String) : LinearLayout(c) {
-        val value = text(c, "–", 13f, TEXT, MONO)
+        val value = num(c, "–", 15f)
         init {
             orientation = VERTICAL
-            val p = dpi(c, 10f); setPadding(p, dpi(c, 6f), p, dpi(c, 6f))
-            background = rounded(c, SURFACE_2, 12f)
-            addView(label(c, lbl).apply { textSize = 9f })
-            addView(value, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dpi(c, 2f) })
+            addView(label(c, lbl).apply { textSize = 11f })
+            addView(value, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dpi(c, 3f) })
         }
     }
 
-    /** Full-width pill button. [primary] = filled accent, else outlined surface. */
+    /** Full-width button. [primary] = filled blue, else outlined. */
     fun button(c: Context, s: String, primary: Boolean) = TextView(c).apply {
         text = s; textSize = 15f; typeface = BOLD; gravity = Gravity.CENTER
-        letterSpacing = 0.02f; isClickable = true; isFocusable = true
-        minHeight = dpi(c, 52f)
+        isClickable = true; isFocusable = true
+        minHeight = dpi(c, 48f)
         style(this, primary, if (primary) ACCENT else TEXT)
     }
 
     fun style(b: TextView, filled: Boolean, color: Int) {
         val c = b.context
         val base = if (filled) rounded(c, color, 999f)
-                   else rounded(c, SURFACE_2, 999f, (color and 0x00FFFFFF) or 0x80000000.toInt(), 1.5f)
-        b.setTextColor(if (filled) BG else color)
-        b.background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#33FFFFFF")), base, null)
+                   else rounded(c, SURFACE, 999f, STROKE, 1f)
+        b.setTextColor(if (filled) Color.WHITE else color)
+        val ripple = if (filled) "#33FFFFFF" else "#1F1A73E8"
+        b.background = RippleDrawable(ColorStateList.valueOf(Color.parseColor(ripple)), base, null)
     }
 }
